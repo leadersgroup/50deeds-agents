@@ -11,10 +11,20 @@
 set -euo pipefail
 
 DATA="${HERMES_HOME:-/opt/data}"
-ROSTER="$DATA/staff.csv"
+ROSTER_RAW="$DATA/staff.csv"
 MAP="$DATA/bin/agents.map"
 PROFILES="$DATA/profiles"
 DRY=0
+
+[ -f "$ROSTER_RAW" ] || { echo "sync-staff: no roster at $ROSTER_RAW" >&2; exit 1; }
+
+# Spreadsheet editors (Excel, Numbers, Sheets) save CSV with CRLF line endings
+# and sometimes quote fields. A trailing \r turns "coo" into "coo\r", which
+# matches no agent and fails silently. Normalise into a scratch copy before
+# parsing; the file on disk stays exactly as the user saved it.
+ROSTER="$(mktemp)"
+trap 'rm -f "$ROSTER"' EXIT
+tr -d "\r" < "$ROSTER_RAW" | sed 's/"//g' > "$ROSTER"
 
 case "${1:-}" in
   --dry-run) DRY=1 ;;
@@ -28,8 +38,6 @@ case "${1:-}" in
     done < "$MAP"
     exit 0 ;;
 esac
-
-[ -f "$ROSTER" ] || { echo "sync-staff: no roster at $ROSTER" >&2; exit 1; }
 
 # Replace-or-append a key in an .env file.
 set_env() {
@@ -54,7 +62,7 @@ while IFS=: read -r agent port chan; do
   envfile="$PROFILES/$agent/.env"
   [ -f "$envfile" ] || { echo "sync-staff: skipping $agent (profile not created yet)"; continue; }
 
-  ids="$(awk -F, -v a="$agent" '!/^#/ && NF>=3 && $3==a {gsub(/[ \t]/,"",$1); printf "%s,", $1}' "$ROSTER")"
+  ids="$(awk -F, -v a="$agent" '!/^#/ && NF>=3 {gsub(/^[ \t]+|[ \t]+$/,"",$3)} $3==a {gsub(/[ \t]/,"",$1); printf "%s,", $1}' "$ROSTER")"
   ids="${ids%,}"
 
   if [ -z "$ids" ]; then
