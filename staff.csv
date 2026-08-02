@@ -15,7 +15,7 @@
 
 # --- COO agent: owner only. It can dispatch to every other agent, so this
 # --- row is the most sensitive line in the file. Keep it to one person.
-U00000000000,Eric (owner),coo
+U0A8NS22NUR,Eric (owner),coo
 
 # --- Deed operations processors -------------------------------------------
 U00000000001,PROCESSOR 1 NAME,ops-1
