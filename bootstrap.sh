@@ -49,9 +49,12 @@ install -m 0755 "$SHARE/dispatch"    "$BIN/dispatch"
 install -m 0755 "$SHARE/sync-staff"  "$BIN/sync-staff"
 install -m 0644 "$SHARE/agents.map"  "$BIN/agents.map"
 
-# The roster is seeded once, then the copy on the volume is authoritative so
-# you can add or offboard staff over `railway ssh` without a redeploy.
-[ -f "$DATA/staff.csv" ] || install -m 0600 "$SHARE/staff.csv" "$DATA/staff.csv"
+# The repo is the single source of truth for the roster. Railway gives no
+# shell into the running container, so a volume-resident copy could never be
+# edited — it would freeze at whatever the first boot wrote. Refresh it from
+# the image on every deploy: roster changes go through git, which also gives
+# you a version history of who had access to which agent.
+install -m 0600 "$SHARE/staff.csv" "$DATA/staff.csv"
 
 # --- 2. Per-profile creation and config ------------------------------------
 AGENTS=()
