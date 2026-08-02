@@ -1,0 +1,11 @@
+# agent:api_port:slack_home_channel
+# Single source of truth for the fleet. Add a line, redeploy, done.
+# The home channel (optional) is where that agent delivers cron output.
+coo:8642:
+ops-1:8651:
+ops-2:8652:
+ops-3:8653:
+sales:8661:
+marketing:8671:
+support-1:8681:
+support-2:8682:

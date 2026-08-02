@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# sync-staff — push /opt/data/staff.csv into each agent's Slack allowlist.
+#
+#   sync-staff            apply the roster and restart changed agents
+#   sync-staff --dry-run  show what would change, touch nothing
+#   sync-staff --show     print the current mapping
+#
+# Hermes denies all Slack messages by default when no Member IDs are
+# allowlisted, so this file is the access boundary for the whole fleet.
+
+set -euo pipefail
+
+DATA="${HERMES_HOME:-/opt/data}"
+ROSTER="$DATA/staff.csv"
+MAP="$DATA/bin/agents.map"
+PROFILES="$DATA/profiles"
+DRY=0
+
+case "${1:-}" in
+  --dry-run) DRY=1 ;;
+  --show)
+    printf '%-12s %-6s %s\n' AGENT COUNT STAFF
+    while IFS=: read -r agent _port _chan; do
+      case "${agent:-}" in ''|\#*) continue ;; esac
+      names="$(awk -F, -v a="$agent" '!/^#/ && NF>=3 && $3==a {printf "%s, ", $2}' "$ROSTER")"
+      n="$(awk -F, -v a="$agent" '!/^#/ && NF>=3 && $3==a' "$ROSTER" | wc -l)"
+      printf '%-12s %-6s %s\n' "$agent" "$n" "${names%, }"
+    done < "$MAP"
+    exit 0 ;;
+esac
+
+[ -f "$ROSTER" ] || { echo "sync-staff: no roster at $ROSTER" >&2; exit 1; }
+
+# Replace-or-append a key in an .env file.
+set_env() {
+  local file="$1" key="$2" val="$3" tmp
+  tmp="$(mktemp)"
+  grep -v "^${key}=" "$file" 2>/dev/null > "$tmp" || true
+  echo "${key}=${val}" >> "$tmp"
+  mv "$tmp" "$file"
+  chmod 600 "$file"
+}
+
+# Warn about roster rows pointing at agents that do not exist.
+awk -F, '!/^#/ && NF>=3 {print $3}' "$ROSTER" | sort -u | while read -r a; do
+  [ -n "$a" ] || continue
+  grep -q "^$a:" "$MAP" || echo "sync-staff: WARNING roster references unknown agent '$a'" >&2
+done
+
+changed=()
+
+while IFS=: read -r agent port chan; do
+  case "${agent:-}" in ''|\#*) continue ;; esac
+  envfile="$PROFILES/$agent/.env"
+  [ -f "$envfile" ] || { echo "sync-staff: skipping $agent (profile not created yet)"; continue; }
+
+  ids="$(awk -F, -v a="$agent" '!/^#/ && NF>=3 && $3==a {gsub(/[ \t]/,"",$1); printf "%s,", $1}' "$ROSTER")"
+  ids="${ids%,}"
+
+  if [ -z "$ids" ]; then
+    echo "sync-staff: WARNING $agent has nobody assigned — it will answer nobody"
+  fi
+
+  current="$(grep '^SLACK_ALLOWED_USERS=' "$envfile" 2>/dev/null | cut -d= -f2- || true)"
+  current_chan="$(grep '^SLACK_HOME_CHANNEL=' "$envfile" 2>/dev/null | cut -d= -f2- || true)"
+
+  if [ "$current" != "$ids" ] || { [ -n "${chan:-}" ] && [ "$current_chan" != "$chan" ]; }; then
+    echo "sync-staff: $agent  [$current] -> [$ids]"
+    if [ "$DRY" -eq 0 ]; then
+      set_env "$envfile" SLACK_ALLOWED_USERS "$ids"
+      [ -n "${chan:-}" ] && set_env "$envfile" SLACK_HOME_CHANNEL "$chan"
+      changed+=("$agent")
+    fi
+  fi
+done < "$MAP"
+
+[ "$DRY" -eq 1 ] && { echo "sync-staff: dry run, nothing written"; exit 0; }
+
+for agent in "${changed[@]:-}"; do
+  [ -n "$agent" ] || continue
+  echo "sync-staff: restarting $agent"
+  hermes -p "$agent" gateway restart || echo "sync-staff: restart failed for $agent" >&2
+done
+
+echo "sync-staff: done (${#changed[@]} agent(s) updated)"

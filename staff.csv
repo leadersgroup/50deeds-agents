@@ -1,0 +1,47 @@
+# 50deeds staff → agent roster
+#
+# ONE ROW PER PERSON PER AGENT. Someone who uses two agents gets two rows.
+# This file is the access control list for the whole fleet: if a person's
+# Slack Member ID is not on a row for an agent, that agent will not answer
+# them. An agent with zero rows answers nobody.
+#
+# Find a Member ID in Slack: click the person → View full profile →
+# ⋮ (overflow) → Copy member ID. It looks like U04AB1CD2EF.
+#
+# Edit this file, commit, redeploy — or edit it live at
+# /opt/data/staff.csv over `railway ssh` and run: /opt/data/bin/sync-staff
+#
+# slack_member_id,name,agent
+
+# --- COO agent: owner only. It can dispatch to every other agent, so this
+# --- row is the most sensitive line in the file. Keep it to one person.
+U00000000000,Eric (owner),coo
+
+# --- Deed operations processors -------------------------------------------
+U00000000001,PROCESSOR 1 NAME,ops-1
+U00000000002,PROCESSOR 2 NAME,ops-2
+U00000000003,PROCESSOR 3 NAME,ops-3
+
+# --- Sales -----------------------------------------------------------------
+U00000000004,SALES REP NAME,sales
+
+# --- Marketing -------------------------------------------------------------
+U00000000005,MARKETING NAME,marketing
+
+# --- Customer support ------------------------------------------------------
+U00000000006,SUPPORT 1 NAME,support-1
+U00000000007,SUPPORT 2 NAME,support-2
+
+# --- Examples of the patterns you will actually need ----------------------
+# A reviewing attorney who needs to reach every ops agent — three rows:
+# U00000000008,REVIEWING ATTORNEY,ops-1
+# U00000000008,REVIEWING ATTORNEY,ops-2
+# U00000000008,REVIEWING ATTORNEY,ops-3
+#
+# A person covering two functions:
+# U00000000009,ADMIN NAME,support-1
+# U00000000009,ADMIN NAME,sales
+#
+# Offboarding: delete the person's rows and run sync-staff. Their access is
+# revoked on the next gateway restart. Do not just remove them from Slack —
+# the allowlist is what the gateway actually checks.

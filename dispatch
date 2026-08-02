@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# dispatch — hand a task to another 50deeds agent and get its answer back.
+#
+#   dispatch <agent> "<task>"              synchronous; prints the reply
+#   dispatch --async <agent> "<task>"      returns a run_id immediately
+#   dispatch --status <agent> <run_id>     poll an async run
+#   dispatch --list                        list agents
+#
+# Each agent is a separate Hermes profile with its own memory, tools and
+# persona, reachable on its own loopback API port. Unlike delegate_task
+# subagents (which are ephemeral and start with no history), these are the
+# same persistent agents your staff talk to in Slack — so work you dispatch
+# lands in that department's real memory.
+
+set -euo pipefail
+
+MAP="${HERMES_HOME:-/opt/data}/bin/agents.map"
+PROFILES="${HERMES_HOME:-/opt/data}/profiles"
+
+die() { echo "dispatch: $*" >&2; exit 1; }
+
+port_for() {
+  local p; p="$(awk -F: -v a="$1" '!/^#/ && $1==a {print $2}' "$MAP")"
+  [ -n "$p" ] || die "unknown agent '$1' (try: dispatch --list)"
+  echo "$p"
+}
+key_for() {
+  local f="$PROFILES/$1/.api_key"
+  [ -s "$f" ] || die "no API key for '$1' — has its gateway started?"
+  cat "$f"
+}
+
+case "${1:-}" in
+  --list)
+    grep -v '^#' "$MAP" | grep . | cut -d: -f1; exit 0 ;;
+  --status)
+    agent="${2:?agent required}"; run="${3:?run_id required}"
+    curl -sS "http://127.0.0.1:$(port_for "$agent")/v1/runs/$run" \
+      -H "Authorization: Bearer $(key_for "$agent")"
+    echo; exit 0 ;;
+  --async)
+    agent="${2:?agent required}"; task="${3:?task required}"
+    jq -n --arg i "$task" '{input:$i}' | curl -sS -X POST \
+      "http://127.0.0.1:$(port_for "$agent")/v1/runs" \
+      -H "Authorization: Bearer $(key_for "$agent")" \
+      -H "Content-Type: application/json" --data @-
+    echo; exit 0 ;;
+esac
+
+agent="${1:?usage: dispatch <agent> \"<task>\"}"
+task="${2:?usage: dispatch <agent> \"<task>\"}"
+port="$(port_for "$agent")"
+key="$(key_for "$agent")"
+
+# `conversation` keeps a durable thread per department, so the receiving agent
+# remembers the last thing the COO asked it instead of starting cold.
+jq -n --arg i "$task" --arg c "coo-dispatch" \
+  '{input:$i, conversation:$c, store:true}' \
+| curl -sS -X POST "http://127.0.0.1:$port/v1/responses" \
+    -H "Authorization: Bearer $key" \
+    -H "Content-Type: application/json" --data @- \
+| jq -r '.output[]? | select(.type=="message") | .content[]?.text // empty'
