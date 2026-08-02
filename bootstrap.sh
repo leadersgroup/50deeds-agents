@@ -37,7 +37,11 @@ set_env() {
   mv "$tmp" "$file"; chmod 600 "$file"
 }
 
-mkdir -p "$BIN"
+# A freshly mounted Railway volume arrives root-owned. Hand it to the hermes
+# user BEFORE anything else, because `hermes profile create` drops to that
+# user and cannot mkdir under a root-owned /opt/data.
+mkdir -p "$BIN" "$PROFILES"
+fix_ownership
 
 # --- 1. Shared tooling onto the volume (refreshed every deploy) ------------
 install -m 0755 "$SHARE/dispatch"    "$BIN/dispatch"
