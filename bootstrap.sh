@@ -15,6 +15,7 @@ PROFILES="$DATA/profiles"
 BIN="$DATA/bin"
 SHARE=/usr/local/share/50deeds
 HERMES_USER=hermes
+PY=/opt/hermes/.venv/bin/python
 
 log() { echo "[bootstrap] $*"; }
 
@@ -102,18 +103,48 @@ while IFS=: read -r name port chan; do
   src="$SHARE/souls/${name%%-*}.md"; [ -f "$src" ] || src="$SHARE/souls/ops.md"
   [ -f "$dir/SOUL.md" ] || { sed "s/{{AGENT_NAME}}/$name/g" "$src" > "$dir/SOUL.md"; log "seeded SOUL.md for $name"; }
 
-  # Circuit breaker — off by default, wrong for an unattended gateway.
-  cfg="$dir/config.yaml"
-  if [ -f "$cfg" ] && ! grep -q 'tool_loop_guardrails' "$cfg"; then
-    cat >> "$cfg" <<'YAML'
+  # Config: circuit breaker + model selection. Edited as YAML rather than
+  # appended, so we never create a duplicate `model:` key alongside the
+  # bundled `model: ""` sentinel that ships on a fresh install.
+  mdl_var="HERMES_MODEL_$suffix"
+  mdl="${!mdl_var:-${HERMES_MODEL:-}}"
+  "$PY" - "$dir/config.yaml" "${HERMES_MODEL_PROVIDER:-anthropic}" "$mdl" <<'PYEOF'
+import pathlib, sys, yaml
 
-tool_loop_guardrails:
-  hard_stop_enabled: true
-  hard_stop_after:
-    exact_failure: 5
-    idempotent_no_progress: 5
-YAML
-  fi
+path, provider, model = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+try:
+    data = yaml.safe_load(path.read_text()) or {} if path.exists() else {}
+except Exception:
+    data = {}
+if not isinstance(data, dict):
+    data = {}
+
+changed = False
+
+# Unattended gateways need a circuit breaker; the default is off, which is
+# only reasonable for an interactive session a human is watching.
+if "tool_loop_guardrails" not in data:
+    data["tool_loop_guardrails"] = {
+        "hard_stop_enabled": True,
+        "hard_stop_after": {"exact_failure": 5, "idempotent_no_progress": 5},
+    }
+    changed = True
+
+# Only seed a model if one was requested and none is set. Never clobber a
+# choice made later in the dashboard.
+current = data.get("model")
+current = current if isinstance(current, dict) else {}
+if model and not current.get("default"):
+    current["provider"] = provider
+    current["default"] = model
+    data["model"] = current
+    changed = True
+    print(f"[bootstrap] model {provider}/{model} -> {path}")
+
+if changed:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(data, sort_keys=False))
+PYEOF
 done < "$BIN/agents.map"
 
 fix_ownership
