@@ -35,12 +35,13 @@ done
 case "${1:-}" in
   --dry-run|--no-restart) ;;
   --show)
-    printf '%-12s %-6s %s\n' AGENT COUNT STAFF
+    printf '%-12s %-8s %-30s %s\n' AGENT ROSTER LIVE_ALLOWLIST STAFF
     while IFS=: read -r agent _port _chan; do
       case "${agent:-}" in ''|\#*) continue ;; esac
       names="$(awk -F, -v a="$agent" '!/^#/ && NF>=3 && $3==a {printf "%s, ", $2}' "$ROSTER")"
-      n="$(awk -F, -v a="$agent" '!/^#/ && NF>=3 && $3==a' "$ROSTER" | wc -l)"
-      printf '%-12s %-6s %s\n' "$agent" "$n" "${names%, }"
+      n="$(awk -F, -v a="$agent" '!/^#/ && NF>=3 && $3==a' "$ROSTER" | wc -l | tr -d " ")"
+      live="$(grep '^SLACK_ALLOWED_USERS=' "$PROFILES/$agent/.env" 2>/dev/null | cut -d= -f2-)"
+      printf '%-12s %-7s %-34s %s\n' "$agent" "$n" "${live:-<EMPTY: DENIES ALL>}" "${names%, }"
     done < "$MAP"
     exit 0 ;;
 esac

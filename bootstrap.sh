@@ -151,6 +151,11 @@ fix_ownership
 
 # --- 3. Apply the staff roster to every agent's Slack allowlist ------------
 "$BIN/sync-staff" --no-restart || log "sync-staff reported problems — check the roster"
+
+# Print the effective access map on every boot. There is no shell into the
+# running container on Railway, so the deploy log is the only window into
+# what each agent's allowlist actually contains.
+"$BIN/sync-staff" --show || true
 fix_ownership
 
 # --- 4. Start the gateways and the dashboard -------------------------------
