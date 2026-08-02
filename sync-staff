@@ -76,6 +76,12 @@ done < "$MAP"
 
 [ "$DRY" -eq 1 ] && { echo "sync-staff: dry run, nothing written"; exit 0; }
 
+# Same ownership handoff as bootstrap: root-written .env files are unreadable
+# by the gateway, which runs as the unprivileged hermes user.
+if [ "$(id -u)" = "0" ]; then
+  chown -R hermes:hermes "$DATA" 2>/dev/null || true
+fi
+
 for agent in "${changed[@]:-}"; do
   [ -n "$agent" ] || continue
   echo "sync-staff: restarting $agent"

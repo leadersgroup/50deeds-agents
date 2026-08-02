@@ -14,8 +14,19 @@ DATA="${HERMES_HOME:-/opt/data}"
 PROFILES="$DATA/profiles"
 BIN="$DATA/bin"
 SHARE=/usr/local/share/50deeds
+HERMES_USER=hermes
 
 log() { echo "[bootstrap] $*"; }
+
+# On Railway the volume is mounted as root and RAILWAY_RUN_UID=0 keeps the
+# container root, so s6's /init can chown it. But the supervised gateways run
+# as the unprivileged `hermes` user, and the `hermes` CLI shim drops root
+# callers to that user too. Anything this script writes with plain shell
+# therefore has to be handed back, or the gateways cannot read their own .env.
+fix_ownership() {
+  [ "$(id -u)" = "0" ] || return 0
+  chown -R "$HERMES_USER":"$HERMES_USER" "$DATA" 2>/dev/null || true
+}
 
 # Replace-or-append a key in an .env file.
 set_env() {
@@ -101,8 +112,11 @@ YAML
   fi
 done < "$BIN/agents.map"
 
+fix_ownership
+
 # --- 3. Apply the staff roster to every agent's Slack allowlist ------------
 "$BIN/sync-staff" || log "sync-staff reported problems — check the roster"
+fix_ownership
 
 # --- 4. Start the gateways; park the unused default profile ----------------
 for name in "${AGENTS[@]}"; do
