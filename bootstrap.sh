@@ -122,14 +122,49 @@ fix_ownership
 "$BIN/sync-staff" || log "sync-staff reported problems — check the roster"
 fix_ownership
 
-# --- 4. Start the gateways; park the unused default profile ----------------
+# --- 4. Start the gateways and the dashboard -------------------------------
+# Inside the stock image s6-overlay is PID 1 and supervises a gateway service
+# per profile. Railway's custom start command bypasses the image ENTRYPOINT,
+# so /init never runs and `gateway start` falls back to a legacy no-op. Detect
+# which world we are in and supervise the processes ourselves when we must.
+if [ -d /run/service ] && [ -x /command/s6-svstat ]; then
+  log "s6 supervisor detected — using per-profile service slots"
+  for name in "${AGENTS[@]}"; do
+    hermes -p "$name" gateway start || log "gateway start $name failed"
+  done
+  hermes gateway stop >/dev/null 2>&1 || true
+  log "fleet up: ${AGENTS[*]}"
+  exec sleep infinity
+fi
+
+log "no s6 supervision tree — running own supervisor"
+
+# Restart-on-exit wrapper. Each gateway is a long-lived foreground process;
+# if one dies we bring it back rather than losing that department silently.
+supervise() {
+  local label="$1"; shift
+  (
+    while true; do
+      "$@" 2>&1 | sed "s/^/[$label] /"
+      log "$label exited (rc=$?) — restarting in 5s"
+      sleep 5
+    done
+  ) &
+}
+
 for name in "${AGENTS[@]}"; do
-  hermes -p "$name" gateway start || log "gateway start $name failed — see logs/gateways/$name/current"
+  supervise "$name" hermes -p "$name" gateway run
+  sleep 1   # stagger so eight gateways do not contend on startup
 done
-hermes gateway stop >/dev/null 2>&1 || true
+
+if [ "${HERMES_DASHBOARD:-}" = "1" ]; then
+  supervise dashboard hermes dashboard \
+    --host "${HERMES_DASHBOARD_HOST:-0.0.0.0}" \
+    --port "${HERMES_DASHBOARD_PORT:-9119}" \
+    --no-open
+fi
 
 log "fleet up: ${AGENTS[*]}"
 
-# s6 supervises the gateways; this process only has to stay alive so the
-# container does not exit.
-exec sleep infinity
+# Stay in the foreground so the container lives as long as its children.
+wait
