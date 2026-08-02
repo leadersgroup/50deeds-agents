@@ -150,7 +150,7 @@ done < "$BIN/agents.map"
 fix_ownership
 
 # --- 3. Apply the staff roster to every agent's Slack allowlist ------------
-"$BIN/sync-staff" || log "sync-staff reported problems — check the roster"
+"$BIN/sync-staff" --no-restart || log "sync-staff reported problems — check the roster"
 fix_ownership
 
 # --- 4. Start the gateways and the dashboard -------------------------------

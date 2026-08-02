@@ -15,6 +15,7 @@ ROSTER_RAW="$DATA/staff.csv"
 MAP="$DATA/bin/agents.map"
 PROFILES="$DATA/profiles"
 DRY=0
+NORESTART=0
 
 [ -f "$ROSTER_RAW" ] || { echo "sync-staff: no roster at $ROSTER_RAW" >&2; exit 1; }
 
@@ -24,10 +25,15 @@ DRY=0
 # parsing; the file on disk stays exactly as the user saved it.
 ROSTER="$(mktemp)"
 trap 'rm -f "$ROSTER"' EXIT
-tr -d "\r" < "$ROSTER_RAW" | sed 's/"//g' > "$ROSTER"
+tr -d "\r" < "$ROSTER_RAW" | sed 's/"//g; s/^[ \t]*//' > "$ROSTER"
+
+for arg in "$@"; do
+  [ "$arg" = "--no-restart" ] && NORESTART=1
+  [ "$arg" = "--dry-run" ] && DRY=1
+done
 
 case "${1:-}" in
-  --dry-run) DRY=1 ;;
+  --dry-run|--no-restart) ;;
   --show)
     printf '%-12s %-6s %s\n' AGENT COUNT STAFF
     while IFS=: read -r agent _port _chan; do
@@ -88,6 +94,14 @@ done < "$MAP"
 # by the gateway, which runs as the unprivileged hermes user.
 if [ "$(id -u)" = "0" ]; then
   chown -R hermes:hermes "$DATA" 2>/dev/null || true
+fi
+
+# Without s6, `gateway restart` runs a gateway in the FOREGROUND and never
+# returns — it would block the caller forever. bootstrap.sh passes
+# --no-restart because it starts every gateway itself immediately after.
+if [ "$NORESTART" = "1" ]; then
+  echo "sync-staff: ${#changed[@]} agent(s) updated; restart skipped (--no-restart)"
+  exit 0
 fi
 
 for agent in "${changed[@]:-}"; do
