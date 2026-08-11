@@ -2,6 +2,7 @@
 # Single source of truth for the fleet. Add a line, redeploy, done.
 # The home channel (optional) is where that agent delivers cron output.
 coo:8642:
+ceo:8711:
 ops-1:8651:
 ops-2:8652:
 ops-3:8653:
