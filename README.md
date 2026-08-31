@@ -1,6 +1,6 @@
 # 50deeds agent fleet — Hermes on Railway
 
-One Railway service. One volume. Eight independent agents.
+One Railway service. One volume. Four independent agents.
 
 ## The architectural decision that drives everything
 
@@ -26,10 +26,9 @@ persistent agent your staff is talking to.
 Railway service "hermes"  ──  volume at /opt/data
 │
 ├─ profile coo         :8642   ← you, via Slack + dashboard
-├─ profile ops-1/2/3   :8651-3 ← deed processors
-├─ profile sales       :8661
-├─ profile marketing   :8671
-├─ profile support-1/2 :8681-2
+├─ profile ceo         :8711
+├─ profile ops-1       :8651   ← deed processor
+├─ profile ops-2       :8652   ← deed processor
 └─ dashboard           :9119   ← the one publicly exposed port
 ```
 
@@ -61,16 +60,16 @@ dashboard is reachable from the internet.
    collide. The bootstrap writes it into each profile's own `.env`.
 
 7. **Networking**: generate a domain, target port `9119`. Leave 8642+ unexposed.
-8. **Resources**: budget ~500 MB per running gateway. Eight agents → 8 GB and
-   4 vCPU is a sane starting point. Volume: start at 10 GB.
+8. **Resources**: budget ~500 MB per running gateway. Four agents → 4 GB and
+   2 vCPU is a sane starting point. Volume: start at 10 GB.
 
-First deploy creates all eight profiles, generates a per-profile API key,
+First deploy creates all four profiles, generates a per-profile API key,
 seeds the personas, and starts the gateways.
 
 ## Then wire up the humans
 
 Each agent needs **its own Slack app**, so a processor DMs `@50deeds Ops 1`
-and a rep DMs `@50deeds Sales`. Do this once per agent — eight times.
+and a staff member DMs the appropriate profile. Do this once per agent.
 
 ### Per-agent Slack checklist
 
@@ -94,7 +93,7 @@ For each agent in `agents.map`:
    ```
 
    The bootstrap picks these up by name and writes them into the right
-   profile's `.env`. Sixteen variables total for eight agents.
+   profile's `.env`.
 6. Invite the bot to any channel it should see: `/invite @50deeds Ops 1`.
    It ignores channels it has not been invited to. DMs need no invite.
 
@@ -153,9 +152,9 @@ terminal tool:
 
 ```bash
 dispatch --list
-dispatch sales "Draft the AAEPA follow-up covering member pricing tiers"
-dispatch --async marketing "Draft the Ohio practitioner guide"
-dispatch --status marketing run_abc123
+dispatch ops-1 "Check the routing requirements for this order"
+dispatch --async ops-2 "Review the recording package"
+dispatch --status ops-2 run_abc123
 ```
 
 Dispatches thread under a durable `coo-dispatch` conversation per agent, so

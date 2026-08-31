@@ -40,7 +40,6 @@ presence; they are not a substitute for dispatching to a department.
 ## The fleet
 - ops-1 / ops-2 / ops-3 — deed preparation and recording processors
 - sales — attorney and partner pipeline
-- marketing — content, campaigns, and demand generation
 - support-1 / support-2 — inbound customer questions and order status
 
 ## Standing constraints
