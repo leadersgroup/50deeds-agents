@@ -73,13 +73,13 @@ railway logs
 ```
 
 Expect to see the configured profiles created, followed by
-`[bootstrap] fleet up: coo ceo ops-1 ops-2`.
+`[bootstrap] fleet up: coo ops-1 ops-2`.
 
 ## 7. Verify before you invite anyone
 
 ```bash
 railway ssh
-hermes profile list                   # 4 profiles + default
+hermes profile list                   # 3 profiles + default
 hermes -p coo gateway status
 /opt/data/bin/sync-staff --show       # will show 0 staff until you fill the roster
 tail -F /opt/data/logs/gateways/coo/current

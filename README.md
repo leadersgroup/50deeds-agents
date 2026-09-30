@@ -1,6 +1,6 @@
 # 50deeds agent fleet — Hermes on Railway
 
-One Railway service. One volume. Four independent agents.
+One Railway service. One volume. Three independent agents.
 
 ## The architectural decision that drives everything
 
@@ -26,7 +26,6 @@ persistent agent your staff is talking to.
 Railway service "hermes"  ──  volume at /opt/data
 │
 ├─ profile coo         :8642   ← you, via Slack + dashboard
-├─ profile ceo         :8711
 ├─ profile ops-1       :8651   ← deed processor
 ├─ profile ops-2       :8652   ← deed processor
 └─ dashboard           :9119   ← the one publicly exposed port
@@ -60,10 +59,10 @@ dashboard is reachable from the internet.
    collide. The bootstrap writes it into each profile's own `.env`.
 
 7. **Networking**: generate a domain, target port `9119`. Leave 8642+ unexposed.
-8. **Resources**: budget ~500 MB per running gateway. Four agents → 4 GB and
+8. **Resources**: budget ~500 MB per running gateway. Three agents → 4 GB and
    2 vCPU is a sane starting point. Volume: start at 10 GB.
 
-First deploy creates all four profiles, generates a per-profile API key,
+First deploy creates all three profiles, generates a per-profile API key,
 seeds the personas, and starts the gateways.
 
 ## Then wire up the humans
