@@ -7,6 +7,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends jq \
     && rm -rf /var/lib/apt/lists/*
 
+# Hermes v0.23 dropped PyYAML from its venv; bootstrap's config step imports yaml.
+RUN /opt/hermes/.venv/bin/python -m pip install --no-cache-dir pyyaml
+
 # Baked into the image so every deploy is reproducible. The bootstrap copies
 # these onto the volume on first boot and never overwrites them afterwards,
 # so personas can be edited live over `railway ssh` without a redeploy.
