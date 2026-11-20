@@ -1,0 +1,8 @@
+# source:target target ...
+# Share one agent's Google Workspace sign-in (Drive, Docs, Sheets, Gmail —
+# whatever that sign-in was granted) with other agents. On every deploy the
+# source profile's google_token.json and google_client_secret.json are copied
+# to each target. The targets act as the SAME Google account as the source,
+# with the same scopes. Remove a target and redeploy to stop refreshing it
+# (its last copy stays on the volume until replaced or deleted).
+coo:ops-1 ops-2

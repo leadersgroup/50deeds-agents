@@ -293,7 +293,56 @@ configure_yaml "$DATA/config.yaml" host "${HERMES_MODEL:-}"
 
 fix_ownership
 
-# --- 2c. Integration inventory ----------------------------------------------
+# --- 2c. Shared Google Workspace sign-in ------------------------------------
+# google-access.map: "source:target target ...". The google-workspace skill
+# keeps its OAuth files in the profile home. Copy the source's to each target
+# so those agents reach Drive as the same Google account. The first time a
+# target's own file is replaced it is kept as <file>.pre-share.
+install -m 0644 "$SHARE/google-access.map" "$BIN/google-access.map"
+while IFS=: read -r gsrc gtargets; do
+  case "${gsrc:-}" in ''|\#*) continue ;; esac
+  srcdir="$PROFILES/$gsrc"
+  if [ ! -s "$srcdir/google_token.json" ]; then
+    log "google share: $gsrc has no google_token.json — nothing to copy"
+    continue
+  fi
+  for gt in $gtargets; do
+    tdir="$PROFILES/$gt"
+    [ -d "$tdir" ] || { log "google share: unknown profile $gt — skipped"; continue; }
+    for f in google_token.json google_client_secret.json; do
+      [ -s "$srcdir/$f" ] || continue
+      if [ -f "$tdir/$f" ] && cmp -s "$srcdir/$f" "$tdir/$f"; then
+        continue
+      fi
+      [ -f "$tdir/$f" ] && [ ! -e "$tdir/$f.pre-share" ] && cp -p "$tdir/$f" "$tdir/$f.pre-share"
+      install -m 0600 "$srcdir/$f" "$tdir/$f"
+      log "google share: copied $f from $gsrc to $gt"
+    done
+  done
+done < "$BIN/google-access.map"
+fix_ownership
+
+# Scopes and expiry of each profile's Google token (no secrets), so the deploy
+# log shows what each agent can actually reach.
+"$PY" - "$PROFILES" "${AGENTS[@]}" <<'PYEOF' || true
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+for n in sys.argv[2:]:
+    f = root / n / "google_token.json"
+    if not f.exists():
+        print(f"[google] {n}: no token"); continue
+    try:
+        raw = f.read_bytes(); t = json.loads(raw)
+        scopes = t.get("scopes") or t.get("scope") or []
+        if isinstance(scopes, str): scopes = scopes.split()
+        short = sorted(s.rsplit("/", 1)[-1] for s in scopes)
+        ident = hashlib.sha256((t.get("refresh_token") or "").encode()).hexdigest()[:8]
+        print(f"[google] {n}: sign-in id {ident} has_refresh_token={bool(t.get('refresh_token'))} expiry={t.get('expiry', '-')} scopes={short}")
+    except Exception as e:
+        print(f"[google] {n}: token unreadable ({type(e).__name__})")
+PYEOF
+
+# --- 2d. Integration inventory ----------------------------------------------
 # No shell into this container, so print what each profile is wired to on
 # every boot: MCP server names, and which Google/OAuth credential files and
 # env keys exist. Names only. Values, tokens and args are never printed.
@@ -301,7 +350,7 @@ fix_ownership
 import os, pathlib, re, sys, yaml
 data = pathlib.Path(sys.argv[1]); names = sys.argv[2:]
 pat = re.compile(r"google|gdrive|drive|gws|oauth|token|credential|client_secret|mcp", re.I)
-skip = {"sessions", "logs", "cache", "node_modules", ".venv", "memories", "checkpoints", "__pycache__"}
+skip = {"sessions", "logs", "cache", ".cache", "node_modules", ".venv", ".venvs", ".venv-gws", "memories", "checkpoints", "__pycache__", "lazy-packages", "skills", "tmp", ".local", ".config", ".hermes", "wiki"}
 for name, home in [("default", data)] + [(n, data / "profiles" / n) for n in names]:
     try:
         cfg = yaml.safe_load((home / "config.yaml").read_text()) or {}
