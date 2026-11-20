@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""google-share — keep agents' Google Workspace sign-ins in step.
+
+  google-share sync    apply google-access.map once and report every sign-in
+  google-share watch   re-apply whenever a source agent signs in again
+
+google-access.map lines are "source:target target ...". When the source
+profile's sign-in is LIVE, its google_token.json and google_client_secret.json
+are copied to each target, so those agents reach Drive as the same Google
+account. A target's own token is kept once as google_token.json.pre-share.
+
+A dead source is never propagated. If a target was handed a source token that
+has since died and its own .pre-share still works, the .pre-share is put back.
+
+Nothing secret is printed: sign-ins are identified by a short hash.
+"""
+import hashlib, json, os, pathlib, shutil, sys, time
+import urllib.error, urllib.parse, urllib.request
+
+DATA = pathlib.Path(os.environ.get("HERMES_HOME", "/opt/data"))
+PROFILES = DATA / "profiles"
+MAP = DATA / "bin" / "google-access.map"
+TOKEN, SECRET = "google_token.json", "google_client_secret.json"
+
+
+def say(msg):
+    print(f"[google] {msg}", flush=True)
+
+
+def call(url, data=None, headers=None):
+    body = urllib.parse.urlencode(data).encode() if data else None
+    req = urllib.request.Request(url, data=body, headers=headers or {})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read() or b"{}")
+        except Exception:
+            return e.code, {}
+    except Exception as e:
+        return 0, {"error": type(e).__name__}
+
+
+def load(path):
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+
+def ident(tok):
+    return hashlib.sha256(((tok or {}).get("refresh_token") or "").encode()).hexdigest()[:8]
+
+
+def check(token_path):
+    """-> (live: bool, description: str). Refreshes, then asks Drive who we are."""
+    tok = load(token_path)
+    if tok is None:
+        return False, "no token" if not token_path.exists() else "token unreadable"
+    cid, csec, rt = tok.get("client_id"), tok.get("client_secret"), tok.get("refresh_token")
+    if not (cid and csec):
+        cs = load(token_path.parent / SECRET) or {}
+        cs = cs.get("installed") or cs.get("web") or {}
+        cid, csec = cid or cs.get("client_id"), csec or cs.get("client_secret")
+    scopes = tok.get("scopes") or tok.get("scope") or []
+    if isinstance(scopes, str):
+        scopes = scopes.split()
+    short = sorted(s.rsplit("/", 1)[-1] for s in scopes)
+    if not (rt and cid and csec):
+        return False, f"sign-in {ident(tok)} incomplete (missing refresh token or client)"
+    code, body = call(tok.get("token_uri") or "https://oauth2.googleapis.com/token",
+                      {"grant_type": "refresh_token", "refresh_token": rt,
+                       "client_id": cid, "client_secret": csec})
+    if code != 200 or "access_token" not in body:
+        why = body.get("error") or f"http {code}"
+        hint = " — expired or revoked; that agent must sign in to Google again" if why == "invalid_grant" else ""
+        return False, f"sign-in {ident(tok)} DEAD ({why}){hint}"
+    code2, who = call("https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)",
+                      headers={"Authorization": "Bearer " + body["access_token"]})
+    if code2 != 200:
+        return False, f"sign-in {ident(tok)} refreshes but Drive refused (http {code2}); scopes={short}"
+    email = (who.get("user") or {}).get("emailAddress")
+    return True, f"sign-in {ident(tok)} OK — Drive reachable as {email}; scopes={short}"
+
+
+def put(src, dst):
+    """Copy atomically, private, owned like the destination profile."""
+    tmp = dst.with_name(dst.name + ".tmp")
+    shutil.copyfile(src, tmp)
+    os.chmod(tmp, 0o600)
+    try:
+        st = dst.parent.stat()
+        os.chown(tmp, st.st_uid, st.st_gid)
+    except OSError:
+        pass
+    os.replace(tmp, dst)
+
+
+def pairs():
+    out = []
+    if not MAP.exists():
+        return out
+    for line in MAP.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or ":" not in line:
+            continue
+        src, targets = line.split(":", 1)
+        out.append((src.strip(), targets.split()))
+    return out
+
+
+def sync(report=True):
+    seen = []
+    for src, targets in pairs():
+        sdir = PROFILES / src
+        live, desc = check(sdir / TOKEN)
+        if report:
+            say(f"{src}: {desc}")
+        seen.append(src)
+        stok = load(sdir / TOKEN) or {}
+        for t in targets:
+            tdir = PROFILES / t
+            if not tdir.is_dir():
+                say(f"{t}: unknown profile — skipped")
+                continue
+            seen.append(t)
+            cur, pre = tdir / TOKEN, tdir / (TOKEN + ".pre-share")
+            ctok = load(cur) or {}
+            same = bool(stok.get("refresh_token")) and ctok.get("refresh_token") == stok.get("refresh_token")
+            if live:
+                if not same:
+                    if cur.exists() and not pre.exists():
+                        put(cur, pre)
+                    put(sdir / TOKEN, cur)
+                    if (sdir / SECRET).exists():
+                        put(sdir / SECRET, tdir / SECRET)
+                    say(f"{t}: now shares {src}'s sign-in")
+                elif report:
+                    say(f"{t}: shares {src}'s sign-in")
+                continue
+            # Source is dead: never propagate it. Undo an earlier hand-off if
+            # the target's own sign-in still works.
+            if same and pre.exists():
+                ok, pdesc = check(pre)
+                if ok:
+                    put(pre, cur)
+                    say(f"{t}: {src}'s sign-in is dead — put back {t}'s own ({pdesc})")
+                    continue
+                if report:
+                    say(f"{t}: holds {src}'s dead sign-in; its own earlier one is no good either ({pdesc})")
+            elif report:
+                tl, tdesc = check(cur)
+                say(f"{t}: {tdesc} (own sign-in; {src}'s is not being shared while it is dead)")
+    return seen
+
+
+def watch():
+    last = {}
+    while True:
+        time.sleep(30)
+        try:
+            changed = False
+            for src, _ in pairs():
+                f = PROFILES / src / TOKEN
+                try:
+                    st = f.stat(); sig = (st.st_mtime_ns, st.st_size)
+                except OSError:
+                    sig = None
+                if src in last and last[src] != sig:
+                    changed = True
+                last[src] = sig
+            if changed:
+                time.sleep(5)          # let the sign-in finish writing
+                sync(report=False)
+        except Exception as e:          # never let the watcher die
+            say(f"watcher error: {type(e).__name__}: {e}")
+
+
+if __name__ == "__main__":
+    mode = sys.argv[1] if len(sys.argv) > 1 else "sync"
+    if mode == "watch":
+        watch()
+    else:
+        sync()

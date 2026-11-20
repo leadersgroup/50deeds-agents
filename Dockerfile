@@ -18,11 +18,13 @@ COPY sync-staff       /usr/local/share/50deeds/sync-staff
 COPY agents.map       /usr/local/share/50deeds/agents.map
 COPY staff.csv        /usr/local/share/50deeds/staff.csv
 COPY google-access.map /usr/local/share/50deeds/google-access.map
+COPY google-share     /usr/local/share/50deeds/google-share
 COPY bootstrap.sh     /usr/local/bin/hermes-bootstrap
 
 RUN chmod 0755 /usr/local/bin/hermes-bootstrap \
                /usr/local/share/50deeds/dispatch \
-               /usr/local/share/50deeds/sync-staff
+               /usr/local/share/50deeds/sync-staff \
+               /usr/local/share/50deeds/google-share
 
 # Do NOT set ENTRYPOINT — s6-overlay's /init must stay in the chain. It runs
 # as root to chown the volume, then drops every service to the hermes user.

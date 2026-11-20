@@ -294,90 +294,13 @@ configure_yaml "$DATA/config.yaml" host "${HERMES_MODEL:-}"
 fix_ownership
 
 # --- 2c. Shared Google Workspace sign-in ------------------------------------
-# google-access.map: "source:target target ...". The google-workspace skill
-# keeps its OAuth files in the profile home. Copy the source's to each target
-# so those agents reach Drive as the same Google account. The first time a
-# target's own file is replaced it is kept as <file>.pre-share.
+# google-access.map: "source:target target ...". See google-share for the
+# rules (a live source is copied to its targets; a dead one never is). It
+# also prints, per agent, whether Drive is reachable and as which account.
 install -m 0644 "$SHARE/google-access.map" "$BIN/google-access.map"
-while IFS=: read -r gsrc gtargets; do
-  case "${gsrc:-}" in ''|\#*) continue ;; esac
-  srcdir="$PROFILES/$gsrc"
-  if [ ! -s "$srcdir/google_token.json" ]; then
-    log "google share: $gsrc has no google_token.json — nothing to copy"
-    continue
-  fi
-  for gt in $gtargets; do
-    tdir="$PROFILES/$gt"
-    [ -d "$tdir" ] || { log "google share: unknown profile $gt — skipped"; continue; }
-    for f in google_token.json google_client_secret.json; do
-      [ -s "$srcdir/$f" ] || continue
-      if [ -f "$tdir/$f" ] && cmp -s "$srcdir/$f" "$tdir/$f"; then
-        continue
-      fi
-      [ -f "$tdir/$f" ] && [ ! -e "$tdir/$f.pre-share" ] && cp -p "$tdir/$f" "$tdir/$f.pre-share"
-      install -m 0600 "$srcdir/$f" "$tdir/$f"
-      log "google share: copied $f from $gsrc to $gt"
-    done
-  done
-done < "$BIN/google-access.map"
+install -m 0755 "$SHARE/google-share"      "$BIN/google-share"
+"$PY" "$BIN/google-share" sync || log "google-share reported problems (non-fatal)"
 fix_ownership
-
-# Live check of each profile's Google sign-in: exchange the refresh token and
-# ask Drive who we are. Nothing is written back and no secret is printed. The
-# deploy log then says plainly whether each agent can reach Drive, and as whom.
-"$PY" - "$PROFILES" "${AGENTS[@]}" <<'PYEOF' || true
-import hashlib, json, pathlib, sys, urllib.error, urllib.parse, urllib.request
-root = pathlib.Path(sys.argv[1])
-
-def call(url, data=None, headers=None):
-    req = urllib.request.Request(url, data=urllib.parse.urlencode(data).encode() if data else None, headers=headers or {})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            return r.status, json.loads(r.read() or b"{}")
-    except urllib.error.HTTPError as e:
-        try: body = json.loads(e.read() or b"{}")
-        except Exception: body = {}
-        return e.code, body
-    except Exception as e:
-        return 0, {"error": type(e).__name__, "error_description": str(e)[:120]}
-
-for n in sys.argv[2:]:
-    home = root / n; f = home / "google_token.json"
-    if not f.exists():
-        print(f"[google] {n}: no google_token.json"); continue
-    try:
-        t = json.loads(f.read_text())
-    except Exception as e:
-        print(f"[google] {n}: token unreadable ({type(e).__name__})"); continue
-    cid, csec = t.get("client_id"), t.get("client_secret")
-    if not (cid and csec):
-        try:
-            cs = json.loads((home / "google_client_secret.json").read_text())
-            cs = cs.get("installed") or cs.get("web") or {}
-            cid, csec = cid or cs.get("client_id"), csec or cs.get("client_secret")
-        except Exception:
-            pass
-    scopes = t.get("scopes") or t.get("scope") or []
-    if isinstance(scopes, str): scopes = scopes.split()
-    short = sorted(x.rsplit("/", 1)[-1] for x in scopes)
-    rt = t.get("refresh_token") or ""
-    ident = hashlib.sha256(rt.encode()).hexdigest()[:8]
-    if not (rt and cid and csec):
-        print(f"[google] {n}: sign-in {ident} incomplete (refresh_token={bool(rt)} client_id={bool(cid)} client_secret={bool(csec)}) keys={sorted(t)}")
-        continue
-    code, body = call(t.get("token_uri") or "https://oauth2.googleapis.com/token",
-                      {"grant_type": "refresh_token", "refresh_token": rt, "client_id": cid, "client_secret": csec})
-    if code != 200 or "access_token" not in body:
-        print(f"[google] {n}: sign-in {ident} REFRESH FAILED http={code} error={body.get('error')} detail={str(body.get('error_description'))[:120]} scopes={short}")
-        continue
-    code2, who = call("https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)",
-                      headers={"Authorization": "Bearer " + body["access_token"]})
-    if code2 == 200:
-        print(f"[google] {n}: sign-in {ident} OK — Drive reachable as {who.get('user', {}).get('emailAddress')} scopes={short}")
-    else:
-        err = who.get("error") if isinstance(who.get("error"), dict) else {}
-        print(f"[google] {n}: sign-in {ident} refreshed but Drive call failed http={code2} {str(err.get('message') or who)[:160]} granted={body.get('scope')}")
-PYEOF
 
 # --- 2d. Integration inventory ----------------------------------------------
 # No shell into this container, so print what each profile is wired to on
@@ -480,6 +403,10 @@ else
   log "starting the host gateway (serves: ${AGENTS[*]})"
   supervise gateway hermes -p default gateway run
 fi
+
+# Re-share as soon as a source agent signs in to Google again, so a fresh
+# sign-in on coo reaches the ops agents without a redeploy.
+"$PY" "$BIN/google-share" watch &
 
 if [ "${HERMES_DASHBOARD:-}" = "1" ]; then
   supervise dashboard hermes dashboard \
