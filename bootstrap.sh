@@ -293,6 +293,58 @@ configure_yaml "$DATA/config.yaml" host "${HERMES_MODEL:-}"
 
 fix_ownership
 
+# --- 2c. Integration inventory ----------------------------------------------
+# No shell into this container, so print what each profile is wired to on
+# every boot: MCP server names, and which Google/OAuth credential files and
+# env keys exist. Names only. Values, tokens and args are never printed.
+"$PY" - "$DATA" "${AGENTS[@]}" <<'PYEOF' || log "inventory step failed (non-fatal)"
+import os, pathlib, re, sys, yaml
+data = pathlib.Path(sys.argv[1]); names = sys.argv[2:]
+pat = re.compile(r"google|gdrive|drive|gws|oauth|token|credential|client_secret|mcp", re.I)
+skip = {"sessions", "logs", "cache", "node_modules", ".venv", "memories", "checkpoints", "__pycache__"}
+for name, home in [("default", data)] + [(n, data / "profiles" / n) for n in names]:
+    try:
+        cfg = yaml.safe_load((home / "config.yaml").read_text()) or {}
+    except Exception as e:
+        cfg = {}; print(f"[inventory] {name}: config.yaml unreadable ({type(e).__name__})")
+    for key in ("mcp_servers", "mcp"):
+        block = cfg.get(key)
+        if isinstance(block, dict):
+            for srv, spec in block.items():
+                spec = spec if isinstance(spec, dict) else {}
+                url = str(spec.get("url", ""))
+                host = re.sub(r"^(https?://[^/?#]+).*", r"\1", url) if url else ""
+                cmd = str(spec.get("command", ""))
+                print(f"[inventory] {name}: {key}.{srv} keys={sorted(spec)} url_host={host or '-'} command={cmd or '-'} "
+                      f"env_keys={sorted(spec.get('env') or {}) if isinstance(spec.get('env'), dict) else '-'} "
+                      f"auth={spec.get('auth', '-') if not isinstance(spec.get('auth'), dict) else sorted(spec['auth'])}")
+    for key in ("toolsets", "platform_toolsets", "skills", "plugins"):
+        if key in cfg:
+            v = cfg[key]
+            print(f"[inventory] {name}: {key} = {v if not isinstance(v, dict) else {k: (x if isinstance(x, (list, bool, str, int)) else sorted(x) if isinstance(x, dict) else '...') for k, x in v.items()}}")
+    try:
+        keys = [l.split("=", 1)[0] for l in (home / ".env").read_text().splitlines() if "=" in l and not l.startswith("#")]
+        hits = [k for k in keys if re.search(r"GOOGLE|GDRIVE|DRIVE|GWS|MCP|OAUTH", k)]
+        print(f"[inventory] {name}: .env keys matching google/mcp/oauth: {hits or 'none'}")
+    except Exception:
+        pass
+    found = []
+    for root, dirs, files in os.walk(home):
+        rel = pathlib.Path(root).relative_to(home)
+        if name == "default":
+            dirs[:] = [d for d in dirs if d != "profiles"]
+        dirs[:] = [d for d in dirs if d not in skip]
+        if len(rel.parts) >= 4:
+            dirs[:] = []
+        for x in list(dirs) + files:
+            if pat.search(x):
+                fp = pathlib.Path(root) / x
+                size = fp.stat().st_size if fp.is_file() else "dir"
+                found.append(f"{rel / x} ({size})")
+    for f in sorted(found)[:60]:
+        print(f"[inventory] {name}: file {f}")
+PYEOF
+
 # --- 3. Apply the staff roster to every agent's Slack allowlist ------------
 "$BIN/sync-staff" --no-restart || log "sync-staff reported problems — check the roster"
 
