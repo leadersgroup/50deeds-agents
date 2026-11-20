@@ -334,11 +334,13 @@ else
   # there is no live secondary gateway to block it. Output goes to the deploy
   # log because that is the only window into this container.
   log "multiplex migration check:"
-  timeout 120 hermes gateway migrate --multiplex -y 2>&1 | sed -u 's/^/[migrate] /' \
+  timeout 120 hermes -p default gateway migrate --multiplex -y 2>&1 | sed -u 's/^/[migrate] /' \
     || log "gateway migrate returned nonzero — continuing; the host gateway decides at boot"
   fix_ownership
+  # -p default is required: the volume has a sticky active profile (coo), so a
+  # bare `hermes gateway run` resolves to coo and Hermes refuses it.
   log "starting the host gateway (serves: ${AGENTS[*]})"
-  supervise gateway hermes gateway run
+  supervise gateway hermes -p default gateway run
 fi
 
 if [ "${HERMES_DASHBOARD:-}" = "1" ]; then
