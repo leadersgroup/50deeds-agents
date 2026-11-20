@@ -1,4 +1,6 @@
 # agent:api_port:slack_home_channel
+# api_port is only used in legacy standalone mode (HERMES_LEGACY_STANDALONE=1).
+# Normally one host gateway serves every agent at 127.0.0.1:8642/p/<agent>/v1.
 # Single source of truth for the fleet. Add a line, redeploy, done.
 # The home channel (optional) is where that agent delivers cron output.
 coo:8642:

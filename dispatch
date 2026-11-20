@@ -7,7 +7,8 @@
 #   dispatch --list                        list agents
 #
 # Each agent is a separate Hermes profile with its own memory, tools and
-# persona, reachable on its own loopback API port. Unlike delegate_task
+# persona. One host gateway serves them all on a single loopback port, each
+# under /p/<agent>/v1/ with that agent's own API key. Unlike delegate_task
 # subagents (which are ephemeral and start with no history), these are the
 # same persistent agents your staff talk to in Slack — so work you dispatch
 # lands in that department's real memory.
@@ -19,10 +20,16 @@ PROFILES="${HERMES_HOME:-/opt/data}/profiles"
 
 die() { echo "dispatch: $*" >&2; exit 1; }
 
-port_for() {
+# Base URL of an agent's API. HERMES_LEGACY_STANDALONE=1 restores the old
+# one-port-per-agent layout from agents.map.
+base_for() {
   local p; p="$(awk -F: -v a="$1" '!/^#/ && $1==a {print $2}' "$MAP")"
   [ -n "$p" ] || die "unknown agent '$1' (try: dispatch --list)"
-  echo "$p"
+  if [ "${HERMES_LEGACY_STANDALONE:-0}" = "1" ]; then
+    echo "http://127.0.0.1:$p/v1"
+  else
+    echo "http://127.0.0.1:${HERMES_API_PORT:-8642}/p/$1/v1"
+  fi
 }
 key_for() {
   local f="$PROFILES/$1/.api_key"
@@ -35,13 +42,13 @@ case "${1:-}" in
     grep -v '^#' "$MAP" | grep . | cut -d: -f1; exit 0 ;;
   --status)
     agent="${2:?agent required}"; run="${3:?run_id required}"
-    curl -sS "http://127.0.0.1:$(port_for "$agent")/v1/runs/$run" \
+    curl -sS "$(base_for "$agent")/runs/$run" \
       -H "Authorization: Bearer $(key_for "$agent")"
     echo; exit 0 ;;
   --async)
     agent="${2:?agent required}"; task="${3:?task required}"
     jq -n --arg i "$task" '{input:$i}' | curl -sS -X POST \
-      "http://127.0.0.1:$(port_for "$agent")/v1/runs" \
+      "$(base_for "$agent")/runs" \
       -H "Authorization: Bearer $(key_for "$agent")" \
       -H "Content-Type: application/json" --data @-
     echo; exit 0 ;;
@@ -49,14 +56,14 @@ esac
 
 agent="${1:?usage: dispatch <agent> \"<task>\"}"
 task="${2:?usage: dispatch <agent> \"<task>\"}"
-port="$(port_for "$agent")"
+base="$(base_for "$agent")"
 key="$(key_for "$agent")"
 
 # `conversation` keeps a durable thread per department, so the receiving agent
 # remembers the last thing the COO asked it instead of starting cold.
 jq -n --arg i "$task" --arg c "coo-dispatch" \
   '{input:$i, conversation:$c, store:true}' \
-| curl -sS -X POST "http://127.0.0.1:$port/v1/responses" \
+| curl -sS -X POST "$base/responses" \
     -H "Authorization: Bearer $key" \
     -H "Content-Type: application/json" --data @- \
 | jq -r '.output[]? | select(.type=="message") | .content[]?.text // empty'

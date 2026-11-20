@@ -5,9 +5,10 @@ One Railway service. One volume. Three independent agents.
 ## The architectural decision that drives everything
 
 You do not want eight containers. Hermes has a first-class **profile** system,
-and inside the official Docker image each profile gets its own s6-supervised
-gateway — so one container runs N fully isolated agents, each with its own
-`SOUL.md`, memory, sessions, skills, credentials, and API port. Nous
+so one container runs N fully isolated agents, each with its own `SOUL.md`,
+memory, sessions, skills and credentials. Since Hermes v0.22 a single host
+gateway (launched from the default profile) serves every profile; a profile
+no longer gets a gateway process or an API port of its own. Nous
 explicitly recommends one container hosting many profiles over one container
 per profile: one image, one venv, per-profile crash restart, one backup.
 
@@ -25,11 +26,16 @@ persistent agent your staff is talking to.
 ```
 Railway service "hermes"  ──  volume at /opt/data
 │
-├─ profile coo         :8642   ← you, via Slack + dashboard
-├─ profile ops-1       :8651   ← deed processor
-├─ profile ops-2       :8652   ← deed processor
-└─ dashboard           :9119   ← the one publicly exposed port
+├─ host gateway (default profile)   one process; API on 127.0.0.1:8642
+│   ├─ profile coo     /p/coo/v1     ← you, via Slack + dashboard
+│   ├─ profile ops-1   /p/ops-1/v1   ← deed processor
+│   └─ profile ops-2   /p/ops-2/v1   ← deed processor
+└─ dashboard           :9119         ← the one publicly exposed port
 ```
+
+Rollback: set `HERMES_LEGACY_STANDALONE=1` in Railway and redeploy to return
+to one standalone gateway per profile on the ports in `agents.map`. Upstream
+calls that mode a temporary shim, so treat it as an escape hatch only.
 
 COO → sibling dispatch runs over `127.0.0.1`. Nothing but the authenticated
 dashboard is reachable from the internet.
@@ -161,7 +167,8 @@ the receiving department remembers the last thing you asked it.
 
 ## Adding an agent
 
-Add one line to `agents.map` (`name:port:` — pick an unused port), add a
+Add one line to `agents.map` (`name:port:` — the port is only used in legacy
+standalone mode, but keep it unique), add a
 persona at `souls/<name>.md` if it isn't a variant of an existing role, add
 its Slack tokens as Railway variables, add its staff rows to `staff.csv`,
 redeploy. The bootstrap is idempotent; existing profiles are untouched.
