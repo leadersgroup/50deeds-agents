@@ -101,6 +101,27 @@ while IFS=: read -r name port chan; do
     log "no Slack tokens for $name (set $bot and $app in Railway)"
   fi
 
+  # Email. Railway blocks outbound SMTP (ports 25/465/587/2525) below the Pro
+  # plan. The email adapter's SMTP connect is a blocking call: while it waits
+  # out its timeout the gateway's event loop is frozen, so Slack and the API
+  # server miss their own 30s connect window at startup and Socket Mode drops
+  # every few minutes afterwards. Unless HERMES_EMAIL=1 is set in Railway
+  # (i.e. the workspace is on Pro and SMTP actually works), park any EMAIL_*
+  # settings the dashboard wrote into this profile. Nothing is deleted: they
+  # move to .env.email-parked and come back when HERMES_EMAIL=1.
+  parked="$dir/.env.email-parked"
+  if [ "${HERMES_EMAIL:-0}" = "1" ]; then
+    if [ -s "$parked" ] && ! grep -q '^EMAIL_' "$envfile"; then
+      cat "$parked" >> "$envfile"; rm -f "$parked"
+      log "restored EMAIL_* settings for $name (HERMES_EMAIL=1)"
+    fi
+  elif grep -q '^EMAIL_' "$envfile"; then
+    grep '^EMAIL_' "$envfile" > "$parked"; chmod 600 "$parked"
+    tmp="$(mktemp)"; grep -v '^EMAIL_' "$envfile" > "$tmp" || true
+    mv "$tmp" "$envfile"; chmod 600 "$envfile"
+    log "email adapter disabled for $name (SMTP is blocked on this plan; settings parked in .env.email-parked, set HERMES_EMAIL=1 to restore)"
+  fi
+
   # SOUL.md = persona and standing instructions. Seeded once; the copy on the
   # volume then wins, so personas are editable live.
   src="$SHARE/souls/${name%%-*}.md"; [ -f "$src" ] || src="$SHARE/souls/ops.md"
@@ -111,10 +132,11 @@ while IFS=: read -r name port chan; do
   # bundled `model: ""` sentinel that ships on a fresh install.
   mdl_var="HERMES_MODEL_$suffix"
   mdl="${!mdl_var:-${HERMES_MODEL:-}}"
-  "$PY" - "$dir/config.yaml" "${HERMES_MODEL_PROVIDER:-anthropic}" "$mdl" <<'PYEOF'
+  "$PY" - "$dir/config.yaml" "${HERMES_MODEL_PROVIDER:-anthropic}" "$mdl" "${HERMES_EMAIL:-0}" <<'PYEOF'
 import pathlib, sys, yaml
 
 path, provider, model = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+email_on = sys.argv[4] == "1"
 try:
     data = yaml.safe_load(path.read_text()) or {} if path.exists() else {}
 except Exception:
@@ -132,6 +154,15 @@ if "tool_loop_guardrails" not in data:
         "hard_stop_after": {"exact_failure": 5, "idempotent_no_progress": 5},
     }
     changed = True
+
+# Keep config.yaml in step with the EMAIL_* parking above. Only an existing
+# platforms.email block is touched; one is never created.
+platforms = data.get("platforms")
+email_cfg = platforms.get("email") if isinstance(platforms, dict) else None
+if isinstance(email_cfg, dict) and "enabled" in email_cfg and bool(email_cfg["enabled"]) != email_on:
+    email_cfg["enabled"] = email_on
+    changed = True
+    print(f"[bootstrap] platforms.email.enabled={email_on} -> {path}")
 
 # Only seed a model if one was requested and none is set. Never clobber a
 # choice made later in the dashboard.
@@ -184,7 +215,9 @@ supervise() {
   local label="$1"; shift
   (
     while true; do
-      "$@" 2>&1 | sed "s/^/[$label] /"
+      # sed -u: line-buffered. Without it sed block-buffers into the pipe and
+      # the Railway deploy log shows gateway output minutes to an hour late.
+      "$@" 2>&1 | sed -u "s/^/[$label] /"
       log "$label exited (rc=$?) — restarting in 5s"
       sleep 5
     done
