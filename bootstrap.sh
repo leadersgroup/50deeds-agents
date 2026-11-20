@@ -322,24 +322,61 @@ while IFS=: read -r gsrc gtargets; do
 done < "$BIN/google-access.map"
 fix_ownership
 
-# Scopes and expiry of each profile's Google token (no secrets), so the deploy
-# log shows what each agent can actually reach.
+# Live check of each profile's Google sign-in: exchange the refresh token and
+# ask Drive who we are. Nothing is written back and no secret is printed. The
+# deploy log then says plainly whether each agent can reach Drive, and as whom.
 "$PY" - "$PROFILES" "${AGENTS[@]}" <<'PYEOF' || true
-import hashlib, json, pathlib, sys
+import hashlib, json, pathlib, sys, urllib.error, urllib.parse, urllib.request
 root = pathlib.Path(sys.argv[1])
-for n in sys.argv[2:]:
-    f = root / n / "google_token.json"
-    if not f.exists():
-        print(f"[google] {n}: no token"); continue
+
+def call(url, data=None, headers=None):
+    req = urllib.request.Request(url, data=urllib.parse.urlencode(data).encode() if data else None, headers=headers or {})
     try:
-        raw = f.read_bytes(); t = json.loads(raw)
-        scopes = t.get("scopes") or t.get("scope") or []
-        if isinstance(scopes, str): scopes = scopes.split()
-        short = sorted(s.rsplit("/", 1)[-1] for s in scopes)
-        ident = hashlib.sha256((t.get("refresh_token") or "").encode()).hexdigest()[:8]
-        print(f"[google] {n}: sign-in id {ident} has_refresh_token={bool(t.get('refresh_token'))} expiry={t.get('expiry', '-')} scopes={short}")
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try: body = json.loads(e.read() or b"{}")
+        except Exception: body = {}
+        return e.code, body
     except Exception as e:
-        print(f"[google] {n}: token unreadable ({type(e).__name__})")
+        return 0, {"error": type(e).__name__, "error_description": str(e)[:120]}
+
+for n in sys.argv[2:]:
+    home = root / n; f = home / "google_token.json"
+    if not f.exists():
+        print(f"[google] {n}: no google_token.json"); continue
+    try:
+        t = json.loads(f.read_text())
+    except Exception as e:
+        print(f"[google] {n}: token unreadable ({type(e).__name__})"); continue
+    cid, csec = t.get("client_id"), t.get("client_secret")
+    if not (cid and csec):
+        try:
+            cs = json.loads((home / "google_client_secret.json").read_text())
+            cs = cs.get("installed") or cs.get("web") or {}
+            cid, csec = cid or cs.get("client_id"), csec or cs.get("client_secret")
+        except Exception:
+            pass
+    scopes = t.get("scopes") or t.get("scope") or []
+    if isinstance(scopes, str): scopes = scopes.split()
+    short = sorted(x.rsplit("/", 1)[-1] for x in scopes)
+    rt = t.get("refresh_token") or ""
+    ident = hashlib.sha256(rt.encode()).hexdigest()[:8]
+    if not (rt and cid and csec):
+        print(f"[google] {n}: sign-in {ident} incomplete (refresh_token={bool(rt)} client_id={bool(cid)} client_secret={bool(csec)}) keys={sorted(t)}")
+        continue
+    code, body = call(t.get("token_uri") or "https://oauth2.googleapis.com/token",
+                      {"grant_type": "refresh_token", "refresh_token": rt, "client_id": cid, "client_secret": csec})
+    if code != 200 or "access_token" not in body:
+        print(f"[google] {n}: sign-in {ident} REFRESH FAILED http={code} error={body.get('error')} detail={str(body.get('error_description'))[:120]} scopes={short}")
+        continue
+    code2, who = call("https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)",
+                      headers={"Authorization": "Bearer " + body["access_token"]})
+    if code2 == 200:
+        print(f"[google] {n}: sign-in {ident} OK — Drive reachable as {who.get('user', {}).get('emailAddress')} scopes={short}")
+    else:
+        err = who.get("error") if isinstance(who.get("error"), dict) else {}
+        print(f"[google] {n}: sign-in {ident} refreshed but Drive call failed http={code2} {str(err.get('message') or who)[:160]} granted={body.get('scope')}")
 PYEOF
 
 # --- 2d. Integration inventory ----------------------------------------------
