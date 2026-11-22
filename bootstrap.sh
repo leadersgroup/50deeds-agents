@@ -162,6 +162,111 @@ park_email() {
   fi
 }
 
+# --- 0. Disk guard ----------------------------------------------------------
+# The volume is small and there is no shell into this container, so a full
+# disk is invisible until every write fails with ENOSPC. This step runs FIRST,
+# before anything below writes to the volume (a full disk would otherwise kill
+# this script under `set -e` and crash-loop the fleet):
+#   1. print where the space is (deploy log is the only window),
+#   2. prune things that are safe to lose: oversized/rotated logs, package
+#      caches, stale cached downloads, core dumps,
+#   3. delete any extra paths named in HERMES_PRUNE_EXTRA (Railway variable,
+#      space-separated, relative to $DATA) — the way to remove a specific
+#      culprit the report points at, since nobody can `rm` it by hand.
+# Nothing here touches sessions, memories, SOUL.md, config or credentials.
+# Tunables: HERMES_LOG_MAX_MB (20), HERMES_CACHE_MAX_DAYS (3),
+#           HERMES_DISK_WATCH_MIN (15), HERMES_DISK_WARN_PCT (85).
+
+disk_used_pct() { df -P "$DATA" 2>/dev/null | awk 'NR==2 {gsub("%","",$5); print $5}'; }
+
+disk_report() (
+  set +e +o pipefail
+  tag="$1"
+  df -h "$DATA" 2>/dev/null | sed -u "s/^/[disk] $tag: /"
+  echo "[disk] $tag: largest directories (MB):"
+  timeout 180 du -x -m --max-depth=4 "$DATA" 2>/dev/null | sort -rn | head -40 \
+    | awk '{mb=$1; $1=""; printf "[disk] %7d MB %s\n", mb, $0}'
+  echo "[disk] $tag: files over 20 MB:"
+  timeout 120 find "$DATA" -xdev -type f -size +20M -printf '%s\t%TY-%Tm-%Td\t%p\n' 2>/dev/null \
+    | sort -rn | head -25 \
+    | awk -F'\t' '{printf "[disk] %7d MB  %s  %s\n", $1/1048576, $2, $3}'
+  exit 0
+)
+
+disk_prune() (
+  set +e +o pipefail
+  max_mb="${HERMES_LOG_MAX_MB:-20}"; days="${HERMES_CACHE_MAX_DAYS:-3}"
+  # Never descend into code/package trees: nothing in them is ours to prune.
+  skip=( \( -name node_modules -o -name '.venv*' -o -name .venvs -o -name lazy-packages -o -name .git \) -prune -o )
+
+  # Rotated / compressed logs older than 2 days. (rm via -exec, not -delete:
+  # -delete turns on -depth, which disables the -prune above.)
+  find "$DATA" -xdev "${skip[@]}" -type f \
+    \( -name '*.log.[0-9]*' -o -name '*.log.gz' -o -name '*.log.*.gz' -o -name '*.log.old' \) \
+    -mtime +2 -print -exec rm -f {} + 2>/dev/null | sed -u 's/^/[disk] removed rotated log /'
+
+  # Live logs over the cap: keep the tail. Staged in /tmp (container disk, not
+  # the volume) so this works even when the volume has zero bytes free.
+  find "$DATA" -xdev "${skip[@]}" -type f -name '*.log' -size +"${max_mb}"M -print 2>/dev/null \
+    | while IFS= read -r f; do
+        before=$(stat -c %s "$f" 2>/dev/null || echo 0)
+        tmp="$(mktemp /tmp/logtail.XXXXXX)" || continue
+        if tail -c 2097152 "$f" > "$tmp" 2>/dev/null && cat "$tmp" > "$f" 2>/dev/null; then
+          echo "[disk] truncated $f ($((before / 1048576)) MB -> 2 MB tail)"
+        fi
+        rm -f "$tmp"
+      done
+
+  # Package-manager download caches: re-fetched on demand.
+  for rel in .cache/pip .cache/uv .cache/node-gyp .npm/_cacache .npm/_logs; do
+    find "$DATA" -xdev -maxdepth 4 -type d -path "*/$rel" -print 2>/dev/null \
+      | while IFS= read -r d; do
+          mb=$(du -sm "$d" 2>/dev/null | cut -f1)
+          rm -rf "$d" && echo "[disk] removed package cache $d (${mb:-?} MB)"
+        done
+  done
+
+  # Stale files in Hermes download/media caches and scratch dirs.
+  find "$DATA" -xdev -maxdepth 4 "${skip[@]}" -type d \
+    \( -name cache -o -name image_cache -o -name audio_cache -o -name document_cache -o -name tmp \) -print 2>/dev/null \
+    | while IFS= read -r d; do
+        n=$(find "$d" -xdev -type f -mtime +"$days" -print -delete 2>/dev/null | wc -l)
+        [ "$n" -gt 0 ] && echo "[disk] removed $n file(s) older than ${days}d from $d"
+      done
+
+  # Core dumps.
+  find "$DATA" -xdev "${skip[@]}" -type f \( -name 'core' -o -name 'core.[0-9]*' \) -size +10M -print -exec rm -f {} + 2>/dev/null \
+    | sed -u 's/^/[disk] removed core dump /'
+
+  # Operator-named extras. Relative to $DATA only; must resolve inside it.
+  root="$(realpath "$DATA")"
+  for rel in ${HERMES_PRUNE_EXTRA:-}; do
+    case "$rel" in /*|*..*|.|./|profiles|profiles/) echo "[disk] HERMES_PRUNE_EXTRA: refusing '$rel'"; continue ;; esac
+    target="$(realpath -m "$root/$rel")"
+    case "$target" in
+      "$root"/?*) ;;
+      *) echo "[disk] HERMES_PRUNE_EXTRA: refusing '$rel' (outside $root)"; continue ;;
+    esac
+    if [ -e "$target" ]; then
+      mb=$(du -sm "$target" 2>/dev/null | cut -f1)
+      rm -rf "$target" && echo "[disk] HERMES_PRUNE_EXTRA: removed $rel (${mb:-?} MB)"
+    else
+      echo "[disk] HERMES_PRUNE_EXTRA: $rel not present (already removed — unset the variable)"
+    fi
+  done
+  exit 0
+)
+
+if [ -d "$DATA" ]; then
+  disk_report "before prune" || true
+  disk_prune || true
+  log "disk after prune: $(df -h "$DATA" 2>/dev/null | awk 'NR==2 {print $3" used of "$2" ("$5"), "$4" free"}')"
+  pct="$(disk_used_pct || true)"
+  if [ "${pct:-0}" -ge 97 ]; then
+    log "WARNING: volume still ${pct}% full after pruning. Grow the volume in Railway, or set HERMES_PRUNE_EXTRA to a path from the [disk] report above and redeploy."
+  fi
+fi
+
 # A freshly mounted Railway volume arrives root-owned. Hand it to the hermes
 # user BEFORE anything else, because `hermes profile create` drops to that
 # user and cannot mkdir under a root-owned /opt/data.
@@ -414,6 +519,22 @@ if [ "${HERMES_DASHBOARD:-}" = "1" ]; then
     --port "${HERMES_DASHBOARD_PORT:-9119}" \
     --no-open
 fi
+
+# Disk watch: one usage line every HERMES_DISK_WATCH_MIN minutes, plus the
+# full breakdown (and a log/cache prune) once usage crosses the warn line, so
+# whatever is growing shows up in the deploy log before the volume is full.
+(
+  set +e
+  every="${HERMES_DISK_WATCH_MIN:-15}"; warn="${HERMES_DISK_WARN_PCT:-85}"
+  while sleep "$((every * 60))"; do
+    pct="$(disk_used_pct)"
+    echo "[disk] watch: $(df -h "$DATA" 2>/dev/null | awk 'NR==2 {print $3" used of "$2" ("$5")"}')"
+    if [ "${pct:-0}" -ge "$warn" ]; then
+      disk_prune
+      disk_report "watch (>= ${warn}%)"
+    fi
+  done
+) &
 
 log "fleet up: ${AGENTS[*]}"
 
