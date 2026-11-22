@@ -312,6 +312,8 @@ PYEOF
   exit 0
 )
 [ -d "$DATA" ] && { py_inventory || true; }
+"$PY" -c "import pymupdf, onnxruntime, docx, googleapiclient, openpyxl; print('[pyenv] preinstalled agent libs import ok (pymupdf', pymupdf.__version__ + ', onnxruntime', onnxruntime.__version__ + ')')" 2>&1 | tail -1 \
+  || log "WARNING: preinstalled agent libs failed to import — check requirements-agents.txt"
 
 # A freshly mounted Railway volume arrives root-owned. Hand it to the hermes
 # user BEFORE anything else, because `hermes profile create` drops to that
@@ -396,6 +398,36 @@ while IFS=: read -r name port chan; do
   # volume then wins, so personas are editable live.
   src="$SHARE/souls/${name%%-*}.md"; [ -f "$src" ] || src="$SHARE/souls/ops.md"
   [ -f "$dir/SOUL.md" ] || { sed "s/{{AGENT_NAME}}/$name/g" "$src" > "$dir/SOUL.md"; log "seeded SOUL.md for $name"; }
+
+  # Managed note in SOUL.md: which Python libraries are already installed.
+  # Without it agents rebuild a virtualenv per task under cache/, which is
+  # what filled the volume. Only the block between the markers is rewritten;
+  # the rest of the persona (editable live) is left exactly as it is.
+  "$PY" - "$dir/SOUL.md" "$SHARE/requirements-agents.txt" <<'PYEOF' || log "could not update the python note in SOUL.md for $name (non-fatal)"
+import pathlib, re, sys
+soul, req = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+pkgs = [l.split("==")[0].strip() for l in req.read_text().splitlines() if l.strip() and not l.startswith("#")]
+start, end = "<!-- 50deeds:python-libs:start -->", "<!-- 50deeds:python-libs:end -->"
+block = f"""{start}
+## Python libraries already installed
+
+These are preinstalled and importable from the default `python3`. Use them
+directly: {", ".join(pkgs)}.
+
+Do not create virtualenvs and do not `pip install` or `uv pip install`
+anything onto /opt/data. The disk there is small and filled up from exactly
+that. If a task needs a library that is not on this list, say so in your
+reply so it can be added to the image.
+{end}"""
+text = soul.read_text() if soul.exists() else ""
+if start in text and end in text:
+    new = re.sub(re.escape(start) + r".*?" + re.escape(end), lambda m: block, text, flags=re.S)
+else:
+    new = text.rstrip("\n") + "\n\n" + block + "\n"
+if new != text:
+    soul.write_text(new)
+    print(f"[bootstrap] python-libs note written to {soul}")
+PYEOF
 
   mdl_var="HERMES_MODEL_$suffix"
   configure_yaml "$dir/config.yaml" named "${!mdl_var:-${HERMES_MODEL:-}}"

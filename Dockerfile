@@ -9,6 +9,18 @@ RUN apt-get update \
 
 # Hermes v0.23 dropped PyYAML from its venv; bootstrap's config step imports yaml.
 RUN /opt/hermes/.venv/bin/python -m ensurepip --upgrade && /opt/hermes/.venv/bin/python -m pip install --no-cache-dir pyyaml
+# Agent Python libraries (see requirements-agents.txt). Installed into their
+# own directory and appended to the Hermes venv's import path with a .pth
+# file: Hermes' own packages still win on any version conflict, and the
+# agents' default `python3` can import these with no install step. This keeps
+# ~1 GB of per-agent virtualenvs and download caches off the volume.
+COPY requirements-agents.txt /usr/local/share/50deeds/requirements-agents.txt
+RUN /opt/hermes/.venv/bin/python -m pip install --no-cache-dir \
+        --target /opt/50deeds/pylibs \
+        -r /usr/local/share/50deeds/requirements-agents.txt \
+    && /opt/hermes/.venv/bin/python -c "import sysconfig, pathlib; pathlib.Path(sysconfig.get_paths()['purelib'], '50deeds-agents.pth').write_text('/opt/50deeds/pylibs\n')" \
+    && /opt/hermes/.venv/bin/python -c "import pymupdf, pymupdf4llm, onnxruntime, numpy, PIL, docx, lxml, tabulate, networkx, googleapiclient, google.auth, google_auth_oauthlib, requests, openpyxl, yaml; print('agent libs ok: pymupdf', pymupdf.__version__, 'onnxruntime', onnxruntime.__version__)"
+
 # Baked into the image so every deploy is reproducible. The bootstrap copies
 # these onto the volume on first boot and never overwrites them afterwards,
 # so personas can be edited live over `railway ssh` without a redeploy.
