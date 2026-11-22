@@ -230,7 +230,11 @@ disk_prune() (
   find "$DATA" -xdev -maxdepth 4 "${skip[@]}" -type d \
     \( -name cache -o -name image_cache -o -name audio_cache -o -name document_cache -o -name tmp \) -print 2>/dev/null \
     | while IFS= read -r d; do
-        n=$(find "$d" -xdev -type f -mtime +"$days" -print -delete 2>/dev/null | wc -l)
+        # Agents build virtualenvs and --target dirs inside cache/. Deleting
+        # their old files one by one would leave a broken environment, so
+        # those trees are left alone (the [pyenv] inventory below lists them).
+        n=$(find "$d" -xdev \( -type d \( -exec test -e '{}/pyvenv.cfg' \; -o -name pydeps -o -name site-packages -o -name node_modules \) -prune \) \
+              -o -type f -mtime +"$days" -print -exec rm -f {} + 2>/dev/null | wc -l)
         [ "$n" -gt 0 ] && echo "[disk] removed $n file(s) older than ${days}d from $d"
       done
 
@@ -266,6 +270,48 @@ if [ -d "$DATA" ]; then
     log "WARNING: volume still ${pct}% full after pruning. Grow the volume in Railway, or set HERMES_PRUNE_EXTRA to a path from the [disk] report above and redeploy."
   fi
 fi
+
+# --- 0b. Python environment inventory ---------------------------------------
+# Agents install their own Python packages into ad-hoc virtualenvs on the
+# volume. Print what each one holds so the packages can be baked into the
+# image instead (names and versions only).
+py_inventory() (
+  set +e +o pipefail
+  for c in python3 python uv pip; do
+    w="$(command -v "$c" 2>/dev/null)"; echo "[pyenv] PATH $c -> ${w:-none} $([ -n "$w" ] && "$w" --version 2>&1 | head -1)"
+  done
+  "$PY" - "$DATA" <<'PYEOF'
+import os, pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+skip = {"node_modules", ".git", "lazy-packages", ".npm", "sessions", "memories", "logs", "skills", "wiki"}
+def dists(sp):
+    out = []
+    for d in sorted(sp.glob("*.dist-info")):
+        m = re.match(r"(.+)-([^-]+)\.dist-info$", d.name)
+        if m: out.append(f"{m.group(1)}=={m.group(2)}")
+    return out
+for cur, dirs, files in os.walk(root):
+    p = pathlib.Path(cur); depth = len(p.relative_to(root).parts)
+    dirs[:] = [d for d in dirs if d not in skip]
+    if depth >= 7: dirs[:] = []
+    if "pyvenv.cfg" in files:
+        dirs[:] = []
+        ver = next((l.split("=",1)[1].strip() for l in (p/"pyvenv.cfg").read_text().splitlines() if l.startswith(("version","version_info"))), "?")
+        ok = any((p/"bin"/n).exists() for n in ("python", "python3"))
+        pk = []
+        for sp in p.glob("lib/python*/site-packages"): pk += dists(sp)
+        print(f"[pyenv] venv {p} python={ver} interpreter={'ok' if ok else 'MISSING'} packages({len(pk)}): {' '.join(pk)}")
+    elif p.name == "pydeps":
+        dirs[:] = []
+        pk = dists(p)
+        print(f"[pyenv] target-dir {p} packages({len(pk)}): {' '.join(pk)}")
+    elif p.name in ("scratch",):
+        scripts = sorted(f for f in files if f.endswith((".py", ".sh")))[:40]
+        if scripts: print(f"[pyenv] scripts in {p}: {' '.join(scripts)}")
+PYEOF
+  exit 0
+)
+[ -d "$DATA" ] && { py_inventory || true; }
 
 # A freshly mounted Railway volume arrives root-owned. Hand it to the hermes
 # user BEFORE anything else, because `hermes profile create` drops to that
