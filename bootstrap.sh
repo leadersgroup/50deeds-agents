@@ -465,8 +465,11 @@ PYEOF
       # Agents patch their skills after a task. Before replacing this one,
       # print what the agent changed and keep its copy, so useful edits can
       # be merged into the repo instead of silently lost.
-      if [ -d "$dest" ]; then
-        "$PY" - "${skill%/}" "$dest" "$name" "$rel" "$DATA/skill-edits" <<'PYEOF' || log "skill diff for $name/$rel failed (non-fatal)"
+      # Compare with the copy installed last deploy (skill-baseline/), not with
+      # the new repo version, so repo updates don't show up as agent edits.
+      base="$DATA/skill-baseline/$name/$rel"
+      if [ -d "$dest" ] && [ -d "$base" ]; then
+        "$PY" - "$base" "$dest" "$name" "$rel" "$DATA/skill-edits" <<'PYEOF' || log "skill diff for $name/$rel failed (non-fatal)"
 import difflib, pathlib, shutil, sys, time
 repo, live, agent, rel, keep = (pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3], sys.argv[4], pathlib.Path(sys.argv[5]))
 files = sorted({p.relative_to(repo) for p in repo.rglob("*") if p.is_file()} |
@@ -477,7 +480,7 @@ for f in files:
     if a.is_file() and b.is_file() and a.read_bytes() == b.read_bytes():
         continue
     if not changed:
-        print(f"[skill-diff] {agent}: agent edits to {rel} (repo -> agent copy):")
+        print(f"[skill-diff] {agent}: agent edits to {rel} (as installed -> agent copy):")
         changed = True
     if not b.is_file():
         print(f"[skill-diff] {agent}: deleted {f}")
@@ -490,7 +493,7 @@ for f in files:
     except Exception:
         print(f"[skill-diff] {agent}: {f} changed (binary)")
         continue
-    for line in difflib.unified_diff(old, new, f"repo/{f}", f"{agent}/{f}", n=1, lineterm=""):
+    for line in difflib.unified_diff(old, new, f"installed/{f}", f"{agent}/{f}", n=1, lineterm=""):
         print(f"[skill-diff] {agent}: {line}")
 if changed:
     dest = keep / agent / f"{rel.replace('/', '__')}-{time.strftime('%Y%m%d-%H%M%S')}"
@@ -500,6 +503,7 @@ if changed:
 PYEOF
       fi
       rm -rf "$dest"; mkdir -p "$(dirname "$dest")"; cp -R "${skill%/}" "$dest"
+      rm -rf "$base"; mkdir -p "$(dirname "$base")"; cp -R "${skill%/}" "$base"
     done
   fi
 
