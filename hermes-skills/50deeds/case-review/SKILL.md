@@ -1,7 +1,7 @@
 ---
 name: 50deeds-case-review
 description: Review a 50deeds deed order (deed, signing package, tax forms) against the vesting deed, trust documents and state recording rules before release, and report ranked issues. Use when staff ask to review, QC, check or re-check a case, order or signing package.
-version: 1.2.0
+version: 1.3.0
 platforms: [linux]
 metadata:
   owner: 50deeds
@@ -103,7 +103,10 @@ line. Quote the exact text when you flag something.
   survivorship words, it is a probate matter. Check the vesting deed's
   words, not the order.
 - Grantee: trustee name(s) and trust name match the trust document;
-  successor/sole trustee language is right if a trustee has died.
+  successor/sole trustee language is right if a trustee has died. Read every
+  page of a Certification of Trust and any attached trust information or
+  titling page: the attachment may contain the exact required vesting phrase
+  even when the certification's operative paragraphs use shorter wording.
 - Marital status recited where the state needs it, and the spouse joins
   where the state requires it (dower/curtesy, homestead, elective share,
   NJ § 3B:28-3).
@@ -188,7 +191,11 @@ state's entry before you finish. For counties, also check the team's
   workflow gap that is not in the recorded deed; a defect in the recorded
   deed itself; or a tax/title question for the attorney. Only a defect in
   the recorded deed calls for a corrective deed. Transcribe the instrument
-  number, recording date and page count from the stamp.
+  number, recording date and page count from the stamp. State the corrective-
+  deed conclusion explicitly: either `Corrective deed indicated` with the
+  recorded defect, or `No corrective deed indicated`. Successful recording
+  proves acceptance by the recorder, not that the parties, authority, legal
+  description, tax treatment, or execution were substantively correct.
 - **Unsigned package:** blank signature, notary and execution-date fields
   are expected. They are not release issues; list them as "complete at
   signing" only if something about them is unclear.
@@ -240,6 +247,10 @@ Rules for the report:
   or quote the text again. Don't drop an issue just because someone
   disagrees.
 - If nothing is wrong, say "No issues found" and list what was verified.
+- For an already-recorded case, lead with the recording date, instrument
+  number and page count, separate package/workflow gaps from defects in the
+  recorded deed, and end the defect section with the explicit corrective-
+  deed conclusion.
 
 ## Pitfalls
 
