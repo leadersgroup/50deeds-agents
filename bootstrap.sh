@@ -689,11 +689,20 @@ fix_ownership
   exe="$("$PY" -c 'from hermes_cli.browser_runtime import chromium_executable as c; print(c() or "")' 2>/dev/null)"
   if [ -n "$exe" ] && [ -x "$exe" ]; then
     as_hermes() { if [ "$(id -u)" = 0 ] && command -v runuser >/dev/null; then runuser -u "$HERMES_USER" -- "$@"; else "$@"; fi; }
-    for flags in "" "--no-sandbox --disable-dev-shm-usage"; do
-      out="$(as_hermes timeout 45 "$exe" --headless=new $flags --user-data-dir=/tmp/chromium-smoke-$$ --dump-dom 'data:text/html,<p>ok</p>' 2>&1)"; rc=$?
-      rm -rf /tmp/chromium-smoke-$$
-      if echo "$out" | grep -q '<p>ok</p>'; then res=OK; else res="FAILED rc=$rc: $(echo "$out" | grep -v '^\s*#' | grep -m2 -iE 'sandbox|error|fatal|shm|abort' | tr '\n' ' ' | cut -c1-240)"; fi
-      log "chromium smoke test (flags: ${flags:-none}): $res"
+    # Launched the way Hermes does: headless with a DevTools port, success =
+    # Chromium writes DevToolsActivePort. Each variant gets 30s.
+    for flags in "--no-sandbox --disable-dev-shm-usage" "--no-sandbox --disable-dev-shm-usage --disable-gpu --no-zygote"; do
+      udd="$(mktemp -d /tmp/chromium-smoke.XXXXXX)"; chmod 777 "$udd"
+      as_hermes "$exe" --headless=new --remote-debugging-port=0 --user-data-dir="$udd" --no-first-run $flags about:blank >"$udd.log" 2>&1 &
+      pid=$!; res="FAILED: no DevTools endpoint within 30s"
+      for _ in $(seq 1 60); do
+        if [ -s "$udd/DevToolsActivePort" ]; then res=OK; break; fi
+        if ! kill -0 "$pid" 2>/dev/null; then wait "$pid"; res="FAILED: exited rc=$?"; break; fi
+        sleep 0.5
+      done
+      [ "$res" = OK ] || res="$res; $(grep -v '^\s*#' "$udd.log" | grep -v 'dbus/bus.cc' | grep -m2 -iE 'error|fatal|abort|sandbox|shm|font|gpu' | tr '\n' ' ' | cut -c1-260)"
+      pkill -f "user-data-dir=$udd" 2>/dev/null; sleep 0.5; rm -rf "$udd" "$udd.log"
+      log "chromium smoke test (flags: $flags): $res"
     done
   else
     log "chromium smoke test skipped: no packaged Chromium found"

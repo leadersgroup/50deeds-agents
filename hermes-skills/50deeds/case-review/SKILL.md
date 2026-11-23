@@ -1,7 +1,7 @@
 ---
 name: 50deeds-case-review
 description: Review a 50deeds deed order (deed, signing package, tax forms) against the vesting deed, trust documents and state recording rules before release, and report ranked issues. Use when staff ask to review, QC, check or re-check a case, order or signing package.
-version: 1.1.0
+version: 1.2.0
 platforms: [linux]
 metadata:
   owner: 50deeds
@@ -28,9 +28,16 @@ Case files are in Google Drive under `QCD_live` â€º `1. eFile:Paper:In-person` â
 `<state>`. Retail-client cases are grouped by state and month; Client Portal
 orders by case number (e.g. `20261002-101834`).
 
-- Locate the case folder, then list every subfolder in one query:
-  `'<id1>' in parents or '<id2>' in parents ...`. Folder traversal is more
-  reliable than full-text search for finding all of a case's files.
+- Use your own profile's Google sign-in (run Google commands with
+  `HERMES_HOME` set to your own profile), search by the literal case ID,
+  and keep it read-only.
+- Search can return trashed copies, empty duplicate folders, and files that
+  merely share the name. Pick the folder that is NOT trashed and sits in the
+  `QCD_live` hierarchy (check `trashed` and `parents`), then list its
+  children recursively with `trashed=false`. Note the folder ID and the
+  file count so the review is auditable.
+- Folder traversal (`'<id>' in parents`) is more reliable than full-text
+  search for finding all of a case's files.
 - Collect: the deed (draft), the signing package (cover page, execution
   instructions, Certificate of Authenticity, Section III disclaimer), state
   tax/transfer forms, the vesting (prior) deed, the trust document or
@@ -139,6 +146,26 @@ line. Quote the exact text when you flag something.
   SSN/EIN, seller/buyer roles). A false certification is a blocker.
 - New York orders: SSN is required for both grantor and grantee.
 
+**Signatures and authority**
+- Each signature sits in the capacity printed beside it. A trustee or
+  grantor who signed only on a witness line has not executed in that
+  capacity, and a notary block does not cure a blank operative signature.
+- The acknowledgment says the signer acknowledged executing the
+  instrument (identity/appearance wording alone is defective).
+- Identify authority documents by content, not file name: "COT" can be a
+  Certification of Trust or a Certificate of Authenticity.
+- Revocable-trust transfer tax exemptions that depend on "no change in
+  beneficial ownership": compare the grantors with the trust's present
+  beneficiaries. If the evidence isn't in the file, flag it for the
+  reviewing attorney as a tax question, not a title defect.
+
+**Versions**
+- The signing package must contain the current deed. A DOCX modified after
+  its PDF or the assembled package makes the package suspect: compare the
+  text of the DOCX, the standalone PDF, and the deed pages inside the
+  package, and report the actual difference (or that they match). A
+  timestamp a few seconds apart is not a defect by itself.
+
 **Signing package** (not for Prep Only)
 - Execution instructions match the deed's witness/notary needs and the
   state where signing happens.
@@ -155,6 +182,25 @@ state's entry before you finish. For counties, also check the team's
 - **Standard:** deed + signing package + forms. Full review.
 - **Prep Only:** deed only. No signing package, so do not flag a missing
   execution page, Certificate of Authenticity or Section III disclaimer.
+- **Already recorded** (a recorded copy or recorder stamp is in the folder):
+  compare the prepared deed, the signed scan and the recorded image, and
+  put each finding in one bucket: fixed before recording; a package or
+  workflow gap that is not in the recorded deed; a defect in the recorded
+  deed itself; or a tax/title question for the attorney. Only a defect in
+  the recorded deed calls for a corrective deed. Transcribe the instrument
+  number, recording date and page count from the stamp.
+- **Unsigned package:** blank signature, notary and execution-date fields
+  are expected. They are not release issues; list them as "complete at
+  signing" only if something about them is unclear.
+
+## Time limit
+
+Deliver a verdict in the same run. Read the documents most likely to change
+the verdict first: the prior/vesting deed, the prepared deed and its
+execution page, the tax form, and the trust or entity authority. If you
+cannot finish everything, report what you found and list the exact files and
+pages you did not inspect. Never reply with only a progress update, and do
+not hand the work to a background task that answers later.
 
 ## 5. Report
 
