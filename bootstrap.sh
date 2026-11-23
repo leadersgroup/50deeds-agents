@@ -462,6 +462,43 @@ PYEOF
       [ -f "$skill/SKILL.md" ] || continue
       rel="${skill#"$SHARE"/skills/}"; rel="${rel%/}"
       dest="$dir/skills/$rel"
+      # Agents patch their skills after a task. Before replacing this one,
+      # print what the agent changed and keep its copy, so useful edits can
+      # be merged into the repo instead of silently lost.
+      if [ -d "$dest" ]; then
+        "$PY" - "${skill%/}" "$dest" "$name" "$rel" "$DATA/skill-edits" <<'PYEOF' || log "skill diff for $name/$rel failed (non-fatal)"
+import difflib, pathlib, shutil, sys, time
+repo, live, agent, rel, keep = (pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3], sys.argv[4], pathlib.Path(sys.argv[5]))
+files = sorted({p.relative_to(repo) for p in repo.rglob("*") if p.is_file()} |
+               {p.relative_to(live) for p in live.rglob("*") if p.is_file()})
+changed = False
+for f in files:
+    a, b = repo / f, live / f
+    if a.is_file() and b.is_file() and a.read_bytes() == b.read_bytes():
+        continue
+    if not changed:
+        print(f"[skill-diff] {agent}: agent edits to {rel} (repo -> agent copy):")
+        changed = True
+    if not b.is_file():
+        print(f"[skill-diff] {agent}: deleted {f}")
+        continue
+    if not a.is_file():
+        print(f"[skill-diff] {agent}: added {f} ({b.stat().st_size} bytes)")
+    try:
+        old = a.read_text(errors="replace").splitlines() if a.is_file() else []
+        new = b.read_text(errors="replace").splitlines()
+    except Exception:
+        print(f"[skill-diff] {agent}: {f} changed (binary)")
+        continue
+    for line in difflib.unified_diff(old, new, f"repo/{f}", f"{agent}/{f}", n=1, lineterm=""):
+        print(f"[skill-diff] {agent}: {line}")
+if changed:
+    dest = keep / agent / f"{rel.replace('/', '__')}-{time.strftime('%Y%m%d-%H%M%S')}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(live, dest)
+    print(f"[skill-diff] {agent}: agent copy kept at {dest}")
+PYEOF
+      fi
       rm -rf "$dest"; mkdir -p "$(dirname "$dest")"; cp -R "${skill%/}" "$dest"
     done
   fi
