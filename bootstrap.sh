@@ -112,6 +112,23 @@ if gw != before:
     changed = True
     print(f"[bootstrap] gateway topology {before} -> {gw} in {path}")
 
+# Chromium sandbox: Hermes only adds --no-sandbox when it detects root or
+# Docker. On Railway it sees neither (the agents run as the hermes user and
+# there is no /.dockerenv), so Chromium aborts at startup (exit -6). Pin the
+# flags here; any other chromium_args set in the dashboard are kept.
+browser = data.get("browser")
+browser = browser if isinstance(browser, dict) else {}
+args = browser.get("chromium_args") or []
+if isinstance(args, str):
+    args = [x.strip() for x in args.replace("\n", ",").split(",") if x.strip()]
+args = [str(x) for x in args]
+missing = [f for f in ("--no-sandbox", "--disable-dev-shm-usage") if f not in args]
+if missing:
+    browser["chromium_args"] = args + missing
+    data["browser"] = browser
+    changed = True
+    print(f"[bootstrap] browser.chromium_args += {missing} -> {path}")
+
 # Keep config.yaml in step with the EMAIL_* parking. Only an existing
 # platforms.email block is touched; one is never created.
 platforms = data.get("platforms")
@@ -418,6 +435,14 @@ Do not create virtualenvs and do not `pip install` or `uv pip install`
 anything onto /opt/data. The disk there is small and filled up from exactly
 that. If a task needs a library that is not on this list, say so in your
 reply so it can be added to the image.
+
+## Case reviews
+
+For any review, QC or re-check of a 50deeds case, order, deed or signing
+package, load the `50deeds-case-review` skill first and follow it. It is the
+only case review skill: do not create, follow or patch a separate review
+skill. If staff correct a review rule, quote the corrected rule in your reply
+so it can be added to that skill.
 {end}"""
 text = soul.read_text() if soul.exists() else ""
 if start in text and end in text:
@@ -625,6 +650,55 @@ fi
     fi
   done
 ) &
+
+# Retire agent-written skills that duplicate a repo skill. Matched by the
+# frontmatter name or folder name; moved (not deleted) to
+# $DATA/retired-skills/<profile>/ and printed once so anything useful in them
+# can be folded into the repo skill. Override with HERMES_RETIRE_SKILLS.
+"$PY" - "$DATA" ${HERMES_RETIRE_SKILLS:-deed-case-qc-review} <<'PYEOF' || log "skill retirement step failed (non-fatal)"
+import pathlib, re, shutil, sys, time
+data = pathlib.Path(sys.argv[1]); names = set(sys.argv[2:])
+for skill_md in sorted(data.glob("profiles/*/skills/**/SKILL.md")):
+    d = skill_md.parent
+    if "50deeds" in d.relative_to(data).parts:
+        continue                                   # repo-managed, never retired
+    try:
+        head = skill_md.read_text(errors="replace")
+    except OSError:
+        continue
+    m = re.search(r"^name:\s*['\"]?([^'\"\n]+)", head, re.M)
+    name = (m.group(1).strip() if m else "") or d.name
+    if name not in names and d.name not in names:
+        continue
+    profile = d.relative_to(data).parts[1]
+    dest = data / "retired-skills" / profile / f"{d.name}-{time.strftime('%Y%m%d-%H%M%S')}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    print(f"[skills] retiring {d} (name: {name}) -> {dest}")
+    for line in head.splitlines()[:400]:
+        print(f"[skills] | {line}")
+    for extra in sorted(p for p in d.rglob("*") if p.is_file() and p != skill_md):
+        print(f"[skills] + file {extra.relative_to(d)} ({extra.stat().st_size} bytes)")
+    shutil.move(str(d), str(dest))
+PYEOF
+fix_ownership
+
+# Browser smoke test, as the user the agents run as, with and without the
+# pinned flags, so the deploy log shows whether the browser tool can work.
+(
+  set +e
+  exe="$("$PY" -c 'from hermes_cli.browser_runtime import chromium_executable as c; print(c() or "")' 2>/dev/null)"
+  if [ -n "$exe" ] && [ -x "$exe" ]; then
+    as_hermes() { if [ "$(id -u)" = 0 ] && command -v runuser >/dev/null; then runuser -u "$HERMES_USER" -- "$@"; else "$@"; fi; }
+    for flags in "" "--no-sandbox --disable-dev-shm-usage"; do
+      out="$(as_hermes timeout 45 "$exe" --headless=new $flags --user-data-dir=/tmp/chromium-smoke-$$ --dump-dom 'data:text/html,<p>ok</p>' 2>&1)"; rc=$?
+      rm -rf /tmp/chromium-smoke-$$
+      if echo "$out" | grep -q '<p>ok</p>'; then res=OK; else res="FAILED rc=$rc: $(echo "$out" | grep -v '^\s*#' | grep -m2 -iE 'sandbox|error|fatal|shm|abort' | tr '\n' ' ' | cut -c1-240)"; fi
+      log "chromium smoke test (flags: ${flags:-none}): $res"
+    done
+  else
+    log "chromium smoke test skipped: no packaged Chromium found"
+  fi
+)
 
 log "50deeds skills installed: $(cd "$SHARE/skills" 2>/dev/null && ls -d */*/ 2>/dev/null | sed 's#/$##' | tr '\n' ' ' | sed 's/ $//') -> ${AGENTS[*]}"
 log "fleet up: ${AGENTS[*]}"

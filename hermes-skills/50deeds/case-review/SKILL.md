@@ -1,7 +1,7 @@
 ---
 name: 50deeds-case-review
 description: Review a 50deeds deed order (deed, signing package, tax forms) against the vesting deed, trust documents and state recording rules before release, and report ranked issues. Use when staff ask to review, QC, check or re-check a case, order or signing package.
-version: 1.0.0
+version: 1.1.0
 platforms: [linux]
 metadata:
   owner: 50deeds
@@ -37,8 +37,29 @@ orders by case number (e.g. `20261002-101834`).
   Certificate of Trust, and any death certificate, POA, or LLC documents.
 - Re-check requests: filter by `modifiedTime > '<last review time>'` to see
   what actually changed before re-reviewing. Say which files changed.
-- Read PDFs and .docx with the preinstalled libraries (pymupdf, pymupdf4llm,
-  python-docx). Do not create a virtualenv or pip install anything.
+- Download the case files into one working folder, e.g.
+  `$HERMES_HOME/cache/scratch/case_<id>/`. Google API libraries are already
+  installed: never run a setup or `pip install` step first.
+
+## 1b. Read the files (do this, in this order)
+
+Run the bundled extractor on the folder. It needs nothing installed:
+
+```
+python3 ${HERMES_SKILL_DIR}/scripts/extract_case.py <case folder>
+```
+
+It prints, per document, a text file and, for scanned pages only, PNG page
+images, all as absolute paths that are known to exist.
+
+1. Read the **text files** first. Most generated deeds, forms and signing
+   packages are fully readable as text.
+2. Use vision **only** on the image paths the extractor printed (scanned or
+   recorded copies, signatures, stamps). Never build an image path yourself.
+3. If a page you need is not in the list, rerun with `--all-pages`.
+4. If the extractor reports `ERROR` for a file, say which file could not be
+   read and carry on with the rest. Do not retry the same failing step: if
+   a tool fails twice, stop and report what failed.
 - If a needed document is missing (no vesting deed, no trust document),
   say so first; review what is there and mark the affected checks "not
   verified".
@@ -182,6 +203,10 @@ Rules for the report:
 - Calling a blank or future trust date a defect (house rule 1).
 - Flagging the homeowner-as-preparer line (house rule 2).
 - Reviewing a stale copy: always check `modifiedTime` on a re-check.
+- Calling vision on page images you assumed were rendered. Only use paths
+  the extractor printed.
+- Using another review skill. This is the only 50deeds case review skill;
+  do not create or follow a separate one.
 
 ## Changing this skill
 
