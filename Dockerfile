@@ -32,6 +32,7 @@ COPY staff.csv        /usr/local/share/50deeds/staff.csv
 COPY google-access.map /usr/local/share/50deeds/google-access.map
 COPY google-share     /usr/local/share/50deeds/google-share
 COPY hermes-skills/    /usr/local/share/50deeds/skills/
+COPY tools/skill_diff.py /usr/local/share/50deeds/skill_diff.py
 COPY bootstrap.sh     /usr/local/bin/hermes-bootstrap
 
 RUN chmod 0755 /usr/local/bin/hermes-bootstrap \

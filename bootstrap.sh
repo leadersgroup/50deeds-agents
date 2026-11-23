@@ -469,38 +469,7 @@ PYEOF
       # the new repo version, so repo updates don't show up as agent edits.
       base="$DATA/skill-baseline/$name/$rel"
       if [ -d "$dest" ] && [ -d "$base" ]; then
-        "$PY" - "$base" "$dest" "$name" "$rel" "$DATA/skill-edits" <<'PYEOF' || log "skill diff for $name/$rel failed (non-fatal)"
-import difflib, pathlib, shutil, sys, time
-repo, live, agent, rel, keep = (pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3], sys.argv[4], pathlib.Path(sys.argv[5]))
-files = sorted({p.relative_to(repo) for p in repo.rglob("*") if p.is_file()} |
-               {p.relative_to(live) for p in live.rglob("*") if p.is_file()})
-changed = False
-for f in files:
-    a, b = repo / f, live / f
-    if a.is_file() and b.is_file() and a.read_bytes() == b.read_bytes():
-        continue
-    if not changed:
-        print(f"[skill-diff] {agent}: agent edits to {rel} (as installed -> agent copy):")
-        changed = True
-    if not b.is_file():
-        print(f"[skill-diff] {agent}: deleted {f}")
-        continue
-    if not a.is_file():
-        print(f"[skill-diff] {agent}: added {f} ({b.stat().st_size} bytes)")
-    try:
-        old = a.read_text(errors="replace").splitlines() if a.is_file() else []
-        new = b.read_text(errors="replace").splitlines()
-    except Exception:
-        print(f"[skill-diff] {agent}: {f} changed (binary)")
-        continue
-    for line in difflib.unified_diff(old, new, f"installed/{f}", f"{agent}/{f}", n=1, lineterm=""):
-        print(f"[skill-diff] {agent}: {line}")
-if changed:
-    dest = keep / agent / f"{rel.replace('/', '__')}-{time.strftime('%Y%m%d-%H%M%S')}"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(live, dest)
-    print(f"[skill-diff] {agent}: agent copy kept at {dest}")
-PYEOF
+        "$PY" "$SHARE/skill_diff.py" "$base" "$dest" "$name" "$rel" "$DATA/skill-edits" || log "skill diff for $name/$rel failed (non-fatal)"
       fi
       rm -rf "$dest"; mkdir -p "$(dirname "$dest")"; cp -R "${skill%/}" "$dest"
       rm -rf "$base"; mkdir -p "$(dirname "$base")"; cp -R "${skill%/}" "$base"
@@ -749,6 +718,24 @@ fix_ownership
     log "chromium smoke test skipped: no packaged Chromium found"
   fi
 )
+
+# Daily: report agent edits to repo-managed skills without resetting them, so
+# the weekly merge sees them even when nothing redeploys. Each change is
+# printed once ([skill-diff] lines) and the agent's copy kept in skill-edits/.
+(
+  set +e
+  every_h="${HERMES_SKILL_DIFF_HOURS:-24}"
+  while sleep "$((every_h * 3600))"; do
+    for name in "${AGENTS[@]}"; do
+      for base in "$DATA"/skill-baseline/"$name"/*/*/; do
+        [ -d "$base" ] || continue
+        rel="${base#"$DATA"/skill-baseline/"$name"/}"; rel="${rel%/}"
+        live="$PROFILES/$name/skills/$rel"
+        [ -d "$live" ] && "$PY" "$SHARE/skill_diff.py" "${base%/}" "$live" "$name" "$rel" "$DATA/skill-edits" --only-new
+      done
+    done
+  done
+) &
 
 log "50deeds skills installed: $(cd "$SHARE/skills" 2>/dev/null && ls -d */*/ 2>/dev/null | sed 's#/$##' | tr '\n' ' ' | sed 's/ $//') -> ${AGENTS[*]}"
 log "fleet up: ${AGENTS[*]}"
