@@ -429,6 +429,18 @@ if new != text:
     print(f"[bootstrap] python-libs note written to {soul}")
 PYEOF
 
+  # 50deeds skills from the repo (hermes-skills/<category>/<skill>/). The repo
+  # is the source of truth: each one is replaced whole on every deploy, so an
+  # agent's in-place edits don't survive. Other skills are left alone.
+  if [ -d "$SHARE/skills" ]; then
+    for skill in "$SHARE"/skills/*/*/; do
+      [ -f "$skill/SKILL.md" ] || continue
+      rel="${skill#"$SHARE"/skills/}"; rel="${rel%/}"
+      dest="$dir/skills/$rel"
+      rm -rf "$dest"; mkdir -p "$(dirname "$dest")"; cp -R "${skill%/}" "$dest"
+    done
+  fi
+
   mdl_var="HERMES_MODEL_$suffix"
   configure_yaml "$dir/config.yaml" named "${!mdl_var:-${HERMES_MODEL:-}}"
 done < "$BIN/agents.map"
@@ -614,6 +626,7 @@ fi
   done
 ) &
 
+log "50deeds skills installed: $(cd "$SHARE/skills" 2>/dev/null && ls -d */*/ 2>/dev/null | sed 's#/$##' | tr '\n' ' ' | sed 's/ $//') -> ${AGENTS[*]}"
 log "fleet up: ${AGENTS[*]}"
 
 # Stay in the foreground so the container lives as long as its children.
