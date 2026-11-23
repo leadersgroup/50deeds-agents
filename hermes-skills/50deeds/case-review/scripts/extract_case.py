@@ -8,6 +8,10 @@ For every PDF, Word file and image under <case_dir> (recursively):
             recorded copies) are also rendered to PNG for vision.
   * DOCX -> paragraphs and tables as text.
   * PNG/JPG/TIFF -> listed for vision as they are.
+  * HEIC/HEIF (phone photos) -> converted to JPEG under renders/, listed.
+
+Folders whose names start with "_" (this script's own _extracted output,
+earlier _review work) are skipped, so only case documents are counted.
 
 Output (default <case_dir>/_extracted):
   <name>.txt        one text file per document, pages marked "=== page N ==="
@@ -28,6 +32,26 @@ MIN_TEXT_CHARS = 40          # less than this on a page = treat as a scan
 PDF = {".pdf"}
 DOCX = {".docx"}
 IMAGES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
+HEIC = {".heic", ".heif"}
+
+
+def do_heic(path: Path, out: Path, key: str) -> dict:
+    rec = {"source": str(path), "type": "photo", "text_file": None, "images": [], "error": None}
+    try:
+        from pillow_heif import register_heif_opener
+        from PIL import Image, ImageOps
+        register_heif_opener()
+        img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
+        img.thumbnail((2000, 2000))
+        dest_dir = out / "renders" / key
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / "photo.jpg"
+        img.save(dest, quality=88)
+        if dest.is_file() and dest.stat().st_size > 0:
+            rec["images"].append(str(dest.resolve()))
+    except Exception as e:
+        rec["error"] = f"cannot convert HEIC: {type(e).__name__}: {e}"
+    return rec
 
 
 def safe(name: str) -> str:
@@ -121,12 +145,16 @@ def main() -> int:
     for path in sorted(p for p in case.rglob("*") if p.is_file()):
         if out in path.parents:
             continue
+        if any(part.startswith("_") for part in path.relative_to(case).parts[:-1]):
+            continue
         ext = path.suffix.lower()
         key = unique(safe(str(path.relative_to(case).with_suffix(""))), used)
         if ext in PDF:
             docs.append(do_pdf(path, out, key, a.dpi, a.all_pages))
         elif ext in DOCX:
             docs.append(do_docx(path, out, key))
+        elif ext in HEIC:
+            docs.append(do_heic(path, out, key))
         elif ext in IMAGES:
             docs.append({"source": str(path), "type": "image", "text_file": None,
                          "images": [str(path)], "error": None})

@@ -6,6 +6,29 @@ statement of any state's law: when a state isn't here, or a situation isn't
 covered, check the team's county recording notes and say what you could not
 verify.
 
+## Minnesota
+- Minn. Stat. § 507.02: a married owner's homestead can't be conveyed
+  without both spouses' signatures (exceptions: purchase-money mortgage,
+  conveyance between spouses, joint-tenancy severance; a spouse may sign by
+  attorney-in-fact). A transfer to a trust is not an exception. When the
+  deed says the owner is married and the county shows homestead, add the
+  spouse as a grantor, update the acknowledgment, cover page and Section III
+  signature block, and get the spouse's exact legal name from the client,
+  not from a trust document.
+- Well disclosure: the deed needs a truthful box checked. If all boxes are
+  blank and the signing instructions don't tell the signer to check one,
+  flag it before release. A prior deed's answer is a reason to ask, not
+  proof of current status.
+- Deed tax is a flat $1.65 when there is no consideration or it is $3,000 or
+  less (§ 287.21). An irrevocable grantee trust doesn't change that when the
+  deed consistently states consideration under the threshold.
+- If the trust certificate says the trust is irrevocable, the owner is not
+  the trustee, or the transfer looks like a permanent gift rather than
+  ordinary revocable-trust funding, require written client confirmation and
+  attorney review before release. It is not a recording defect.
+- Abstract vs Torrens: leave the Torrens box unchecked when the county
+  record type is abstract.
+
 ## Massachusetts
 - Trustee's certificate under M.G.L. c. 184 § 35 needed for a trust grantee
   (current, recordable).
@@ -73,6 +96,11 @@ verify.
 ## South Carolina
 - Venue block and two witnesses; check the deed-recording fee affidavit
   exemption citation for a trust transfer.
+- Affidavit exemption #8 (transfer to a trust): confirm from the trust
+  evidence that the grantor is or becomes a beneficiary and that no
+  consideration is paid other than the beneficial interest. If the trust
+  evidence isn't in the file, raise it as a tax question; don't treat the
+  exemption as verified.
 
 ## North Carolina
 - Practitioners often expect a general warranty deed for trust funding.

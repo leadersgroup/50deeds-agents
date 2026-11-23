@@ -19,7 +19,7 @@ RUN /opt/hermes/.venv/bin/python -m pip install --no-cache-dir \
         --target /opt/50deeds/pylibs \
         -r /usr/local/share/50deeds/requirements-agents.txt \
     && /opt/hermes/.venv/bin/python -c "import sysconfig, pathlib; pathlib.Path(sysconfig.get_paths()['purelib'], '50deeds-agents.pth').write_text('/opt/50deeds/pylibs\n')" \
-    && /opt/hermes/.venv/bin/python -c "import pymupdf, pymupdf4llm, onnxruntime, numpy, PIL, docx, lxml, tabulate, networkx, googleapiclient, google.auth, google_auth_oauthlib, requests, openpyxl, yaml; print('agent libs ok: pymupdf', pymupdf.__version__, 'onnxruntime', onnxruntime.__version__)"
+    && /opt/hermes/.venv/bin/python -c "import pillow_heif, pymupdf, pymupdf4llm, onnxruntime, numpy, PIL, docx, lxml, tabulate, networkx, googleapiclient, google.auth, google_auth_oauthlib, requests, openpyxl, yaml; print('agent libs ok: pymupdf', pymupdf.__version__, 'onnxruntime', onnxruntime.__version__)"
 
 # Baked into the image so every deploy is reproducible. The bootstrap copies
 # these onto the volume on first boot and never overwrites them afterwards,

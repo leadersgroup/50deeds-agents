@@ -1,7 +1,7 @@
 ---
 name: 50deeds-case-review
 description: Review a 50deeds deed order (deed, signing package, tax forms) against the vesting deed, trust documents and state recording rules before release, and report ranked issues. Use when staff ask to review, QC, check or re-check a case, order or signing package.
-version: 1.3.0
+version: 1.4.0
 platforms: [linux]
 metadata:
   owner: 50deeds
@@ -31,22 +31,35 @@ orders by case number (e.g. `20261002-101834`).
 - Use your own profile's Google sign-in (run Google commands with
   `HERMES_HOME` set to your own profile), search by the literal case ID,
   and keep it read-only.
-- Search can return trashed copies, empty duplicate folders, and files that
-  merely share the name. Pick the folder that is NOT trashed and sits in the
-  `QCD_live` hierarchy (check `trashed` and `parents`), then list its
-  children recursively with `trashed=false`. Note the folder ID and the
-  file count so the review is auditable.
+- Search can return trashed copies, empty duplicate folders, files that
+  merely share the name, and parallel trees such as `QCD_live copy`. Walk the
+  parent chain and pick the non-trashed folder under the real live root, not
+  a similarly named copy, then list its children recursively with
+  `trashed=false`.
+- When duplicate case folders exist, list each candidate's contents before
+  choosing: a correctly named folder can be empty while its duplicate holds
+  the working documents.
+- Record the Drive path, folder ID, and the document count separately from
+  the total item count (documents plus subfolders) so the review is
+  auditable.
 - Folder traversal (`'<id>' in parents`) is more reliable than full-text
   search for finding all of a case's files.
+- Inspect every listed file, including phone photos and payment subfolders.
+  If a file holds full card data, a security code, account credentials or
+  other unnecessary high-risk personal data, never repeat it: report that
+  the file is there and tell staff to remove it from the case folder.
 - Collect: the deed (draft), the signing package (cover page, execution
   instructions, Certificate of Authenticity, Section III disclaimer), state
   tax/transfer forms, the vesting (prior) deed, the trust document or
   Certificate of Trust, and any death certificate, POA, or LLC documents.
 - Re-check requests: filter by `modifiedTime > '<last review time>'` to see
   what actually changed before re-reviewing. Say which files changed.
-- Download the case files into one working folder, e.g.
-  `$HERMES_HOME/cache/scratch/case_<id>/`. Google API libraries are already
-  installed: never run a setup or `pip install` step first.
+- Download the case files into a **fresh, empty** working folder, e.g.
+  `$HERMES_HOME/cache/scratch/case_<id>_<timestamp>/`. Never extract from a
+  folder that holds an earlier download: stale files and earlier review
+  output would be read as current case documents and inflate the count.
+  Google API libraries are already installed: never run a setup or
+  `pip install` step first.
 
 ## 1b. Read the files (do this, in this order)
 
@@ -57,12 +70,15 @@ python3 ${HERMES_SKILL_DIR}/scripts/extract_case.py <case folder>
 ```
 
 It prints, per document, a text file and, for scanned pages only, PNG page
-images, all as absolute paths that are known to exist.
+images, all as absolute paths that are known to exist. Phone photos (HEIC,
+JPG, PNG) are converted and listed as images too. It skips folders whose
+names start with `_` (its own `_extracted` output, earlier `_review` work).
 
 1. Read the **text files** first. Most generated deeds, forms and signing
    packages are fully readable as text.
 2. Use vision **only** on the image paths the extractor printed (scanned or
-   recorded copies, signatures, stamps). Never build an image path yourself.
+   recorded copies, phone photos, signatures, stamps). Never build or guess
+   an image path yourself.
 3. If a page you need is not in the list, rerun with `--all-pages`.
 4. If the extractor reports `ERROR` for a file, say which file could not be
    read and carry on with the rest. Do not retry the same failing step: if
@@ -117,9 +133,22 @@ line. Quote the exact text when you flag something.
   block reads correctly for an agent.
 
 **Property**
-- Legal description matches the vesting deed word for word (no dropped
-  calls, no duplicated lead-in text, "BEING the same premises" clause
-  present where the state expects it).
+- Use the **latest** recorded vesting deed, not just the oldest deed in the
+  folder. If the county's transfer history shows a later deed that isn't in
+  the folder, mark vesting and the legal description "not verified" and ask
+  for that deed. An assessor ownership record supports current ownership but
+  does not replace the vesting deed.
+- Legal description matches the vesting deed word for word, read through
+  the end of the property language, not just the lot-and-block sentence: no
+  dropped calls, no duplicated lead-in text, and any reservation, excepted
+  parcel, appurtenant easement or exhibit that defines what is conveyed is
+  carried over ("BEING the same premises" clause where the state expects
+  it). A deed that stops after the parcel description can convey a
+  different interest even though its first sentence matches.
+- Separate that from "subject to" lists (title exceptions, encumbrances,
+  covenants, title-policy language) in a prior warranty deed: do not
+  require those in a quitclaim unless state practice, the order, or the
+  attorney asks for them.
 - Parcel/APN, lot and block, county, municipality and address are consistent
   across deed, cover sheet and tax forms.
 - Fractional interests: the fraction is stated clearly; for a series of
@@ -132,6 +161,10 @@ line. Quote the exact text when you flag something.
 - Consideration clause is consistent with the transfer tax claimed (no
   "$10 and other valuable consideration" next to a form that says $0 if the
   state reads that as taxable, and vice versa).
+- The deed's consideration recital and every tax affidavit say the same
+  thing, read literally: a deed reciting a nominal cash payment conflicts
+  with an affidavit saying "no consideration". Send the intended
+  consideration and exemption to the reviewing attorney before release.
 - No warranty clause that references exceptions it never states.
 - State statutory recitals present (confidentiality notices, true
   consideration statements, tax statement address, preparer block, return
@@ -172,7 +205,9 @@ line. Quote the exact text when you flag something.
 **Signing package** (not for Prep Only)
 - Execution instructions match the deed's witness/notary needs and the
   state where signing happens.
-- Certificate of Authenticity and Section III disclaimer present.
+- Certificate of Authenticity and Section III disclaimer present. Check the
+  assembled package by page content, not file names; if a part is missing,
+  say what the package actually contains.
 - Original-deed instruction: client may scan/email the signed deed to start
   recording, but must mail the original to the Sandy Springs office.
 
@@ -183,8 +218,12 @@ state's entry before you finish. For counties, also check the team's
 ## 4. Order types
 
 - **Standard:** deed + signing package + forms. Full review.
-- **Prep Only:** deed only. No signing package, so do not flag a missing
-  execution page, Certificate of Authenticity or Section III disclaimer.
+- **Prep Only:** review the deed and any recording or tax affidavit that
+  comes with it. Do not flag a missing execution page, Certificate of
+  Authenticity or Section III disclaimer. A generated PDF or `Signing_PKG`
+  folder doesn't turn the order into Standard: check any deed or affidavit
+  in it for real defects, but don't apply the package checklist just
+  because assembly files exist.
 - **Already recorded** (a recorded copy or recorder stamp is in the folder):
   compare the prepared deed, the signed scan and the recorded image, and
   put each finding in one bucket: fixed before recording; a package or
@@ -198,7 +237,11 @@ state's entry before you finish. For counties, also check the team's
   description, tax treatment, or execution were substantively correct.
 - **Unsigned package:** blank signature, notary and execution-date fields
   are expected. They are not release issues; list them as "complete at
-  signing" only if something about them is unclear.
+  signing" only if something about them is unclear. This does **not** cover
+  certifications or elections: well disclosure, residency, exemption and
+  similar checkboxes must carry a truthful selection before recording, and
+  before release when the signing instructions don't tell the client to
+  make it.
 
 ## Time limit
 
@@ -215,6 +258,9 @@ Reply in this shape, short and specific:
 
 ```
 Case <id> — <property address>, <county>, <state>
+Readiness: <READY / NOT READY FOR RELEASE / NOT READY TO RECORD>
+Confidence: <High / Medium / Low> — <what is unverified, if anything>
+Source folder: <Drive path> (<folder ID>) — <n> documents / <n> total items
 Files reviewed: <list> (changed since last review: <list or "n/a">)
 
 BLOCKERS (fix before release)
@@ -236,6 +282,11 @@ NOT VERIFIED (missing documents)
 ```
 
 Rules for the report:
+- Lead with the readiness verdict and confidence. Lower the confidence when
+  county notes, authority evidence, tax treatment or a needed page could not
+  be verified, and name the exact unverified check. A missing, stub, stale or
+  `needs-review` state/county note is a knowledge gap to name, not a defect
+  in the documents.
 - Rank by consequence: rejection or wrong conveyance first, false
   certifications next, cosmetic last.
 - Every issue cites the document and quotes the text. No issue without
@@ -262,6 +313,9 @@ Rules for the report:
 - Reviewing a stale copy: always check `modifiedTime` on a re-check.
 - Calling vision on page images you assumed were rendered. Only use paths
   the extractor printed.
+- Extracting from a scratch folder that already holds an earlier download.
+- Taking the vesting from the oldest deed in the folder when county history
+  shows a later one.
 - Using another review skill. This is the only 50deeds case review skill;
   do not create or follow a separate one.
 
