@@ -1,7 +1,7 @@
 ---
 name: 50deeds-case-review
 description: Review a 50deeds deed order (deed, signing package, tax forms) against the vesting deed, trust documents and state recording rules before release, and report ranked issues. Use when staff ask to review, QC, check or re-check a case, order or signing package.
-version: 1.4.0
+version: 2.0.0
 platforms: [linux]
 metadata:
   owner: 50deeds
@@ -28,6 +28,9 @@ Case files are in Google Drive under `QCD_live` › `1. eFile:Paper:In-person` �
 `<state>`. Retail-client cases are grouped by state and month; Client Portal
 orders by case number (e.g. `20261002-101834`).
 
+- Staff often mistype the date part of an order ID. If the literal ID finds
+  nothing, search by its last six digits; if exactly one case matches,
+  review it and say which ID you used.
 - Use your own profile's Google sign-in (run Google commands with
   `HERMES_HOME` set to your own profile), search by the literal case ID,
   and keep it read-only.
@@ -80,7 +83,17 @@ names start with `_` (its own `_extracted` output, earlier `_review` work).
    recorded copies, phone photos, signatures, stamps). Never build or guess
    an image path yourself.
 3. If a page you need is not in the list, rerun with `--all-pages`.
-4. If the extractor reports `ERROR` for a file, say which file could not be
+4. Measure the deed's recording layout with the bundled script (margins,
+   text in the recorder's reserved box, type under 10 pt). Extracted text
+   can't show these, and recorders reject or surcharge for them:
+   ```
+   python3 ${HERMES_SKILL_DIR}/scripts/measure_layout.py <deed.pdf> --pages 1
+   ```
+   Use `--pages` for the deed's first page inside an assembled package
+   (e.g. `--pages 6`). The reserved box applies to the deed's first page
+   only. Compare the numbers with the state's entry in
+   `references/state-rules.md`.
+5. If the extractor reports `ERROR` for a file, say which file could not be
    read and carry on with the rest. Do not retry the same failing step: if
    a tool fails twice, stop and report what failed.
 - If a needed document is missing (no vesting deed, no trust document),
@@ -129,6 +142,20 @@ line. Quote the exact text when you flag something.
 - Entity grantor (LLC): operating agreement showing signing authority; if
   more than one member, a resolution signed by all members authorizing the
   signer.
+- Any entity party: check the exact name, type, state of formation and
+  standing (active vs. dissolved / intent to dissolve) on the Secretary of
+  State record in the file, and whether the person signing for it appears
+  there as a member or manager.
+- Chain of title: the grantor's own deed must be of record. A vesting deed
+  with no recording stamp or book/page, or one with defects that keep it
+  from recording (hand-altered grantee, wrong county, defective
+  acknowledgment), is a BLOCKER: the new deed would sit outside the record
+  chain. The usual cure is a corrective deed from the prior owner, recorded
+  first.
+- Trust grantor with no trust instrument or certificate of trust in the
+  file: say so. On a high-value transfer, or when a trustee is on both sides
+  (conveying to their own trust), hold release until authority is
+  confirmed.
 - POA signer: the POA is present, covers real property, and the signature
   block reads correctly for an agent.
 
@@ -166,11 +193,22 @@ line. Quote the exact text when you flag something.
   with an affidavit saying "no consideration". Send the intended
   consideration and exemption to the reviewing attorney before release.
 - No warranty clause that references exceptions it never states.
+- Gifts: recite no consideration and carry no warranty language left over
+  from a sale form. A "gift" by trustees of an irrevocable trust is usually
+  a distribution to a beneficiary; raise that with the reviewing attorney.
+- Indexing instructions or abbreviated legals carry everything the state
+  requires (e.g. Mississippi § 89-5-33(3): section, township, range and at
+  least one quarter section).
+- Tax statements go to the party who will owe the taxes (usually the
+  grantee; the life tenant on a life-estate deed).
 - State statutory recitals present (confidentiality notices, true
   consideration statements, tax statement address, preparer block, return
   address).
 - Acknowledgment form fits the state where it will be notarized (a deed
   notarized in another state needs that state's form or a compliant one).
+  If the signers' addresses are in another state (e.g. California),
+  recommend that state's form as an alternate. On a vesting deed, the
+  notary's commission state should match the venue.
 - Witness requirements and signature lines (names printed beneath
   signatures where required).
 
@@ -178,6 +216,13 @@ line. Quote the exact text when you flag something.
 - Every form the county needs is present and complete: checkboxes selected,
   exemption claimed on the form itself where required, no broken or blank
   PDF pages.
+- Every tax or value form (e.g. NV Declaration of Value, WV Sales Listing
+  Form) describes the same transfer as the deed: same estate, exemption
+  cite, value, acreage and parties. Forms carried over from an earlier
+  version of the case (old deed type, old statute cite) are a common
+  failure.
+- Look up the exemption statute and current rule before citing it, and
+  cite the section.
 - Certifications are true for these clients (residency, smoke detector,
   SSN/EIN, seller/buyer roles). A false certification is a blocker.
 - New York orders: SSN is required for both grantor and grantee.
@@ -201,6 +246,22 @@ line. Quote the exact text when you flag something.
   text of the DOCX, the standalone PDF, and the deed pages inside the
   package, and report the actual difference (or that they match). A
   timestamp a few seconds apart is not a defect by itself.
+
+**Stale files**
+- Superseded drafts (`junk.pdf`, `old ...` folders, old forms in `support`)
+  sitting in the case's delivery or signing-package folder: name them so
+  staff remove them before anything is sent.
+
+**Client risk items** (report under MINOR / CONFIRM WITH CLIENT; they are
+not document defects)
+- A mortgage on the property and a transfer that is not into the
+  borrower's own revocable trust: due-on-sale risk. Name the lender and
+  recorded instrument if the mortgage is in the file, and check that the
+  notes page tells the client to get lender consent.
+- Large gifts: possible federal gift tax return (Form 709); a gift and a
+  trust distribution give the grantee a different income tax basis.
+- Commercial property with a tenant: possible lease right of first refusal
+  or transfer-notice requirement.
 
 **Signing package** (not for Prep Only)
 - Execution instructions match the deed's witness/notary needs and the
@@ -282,6 +343,7 @@ NOT VERIFIED (missing documents)
 ```
 
 Rules for the report:
+- Keep it short: roughly 300-500 words. One line per VERIFIED item.
 - Lead with the readiness verdict and confidence. Lower the confidence when
   county notes, authority evidence, tax treatment or a needed page could not
   be verified, and name the exact unverified check. A missing, stub, stale or
