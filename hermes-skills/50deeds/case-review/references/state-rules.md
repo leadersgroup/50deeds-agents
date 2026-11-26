@@ -84,7 +84,10 @@ verify.
 
 ## Texas
 - Texas Property Code § 114.086 certification of trust for a trust grantee.
-- § 11.008 confidentiality notice on the deed.
+- § 11.008 confidentiality notice on the deed, at the top of the first page.
+- No real estate transfer tax (Tex. Const. art. VIII, § 29) and no state
+  value form. Gift deeds: recite no consideration, and exclude the implied
+  covenants of § 5.023 if the deed is without warranty.
 - Separate-property tracing recital where the property is one spouse's
   separate property.
 
@@ -140,3 +143,41 @@ verify.
 ## California
 - Acknowledgment must be the California all-purpose form (Civ. Code
   § 1189) when notarized in California.
+
+## Nevada
+- NRS 247.110 first-page layout: 1" margins, a clear 3"x3" box in the
+  upper-right corner, 10-pt minimum type. Measure with
+  `scripts/measure_layout.py`.
+- NRS 111.312: name and address for tax statements (the grantee) and the
+  APN on the deed.
+- NRS 239B.030 affirmation that the document contains no SSN; recorders can
+  require it.
+- RPTT exemption NRS 375.090(7) (to or from a trust) requires "without
+  consideration" and a certificate of trust at recording; a "$10 and other
+  valuable consideration" recital conflicts with it. Exemption (9) (to an
+  entity the grantor owns 100%) fails when the individuals, not the trust,
+  own the LLC. The Declaration of Value must match the deed.
+- Recording goes to the county where the land is (Carson City mailing
+  addresses are often in Douglas County).
+
+## Mississippi
+- Miss. Code § 89-5-24: 3" top margin on page 1 (3/4" elsewhere); name,
+  mailing address and phone of the preparer and every grantor and grantee
+  on page 1. Nonconforming documents record only with an extra fee.
+- § 89-5-33(3): indexing instruction must give section, township, range and
+  at least one quarter section; the clerk must refuse an instrument without
+  it.
+- No deed transfer tax. Unrecorded deeds are good between the parties but
+  not against later purchasers or creditors without notice.
+- Hunting-camp lots: a lot carved out of a club's master tract has no
+  parcel ID until a deed is recorded and the assessor splits it.
+
+## West Virginia
+- Excise tax exemption for transfers without consideration between parent
+  and child (and spouses, grandparent/grandchild, siblings): W. Va. Code
+  § 11-22-1(10). Quitclaim and no-consideration deeds outside those
+  relationships need the grantee's signature (§ 39-1-2).
+- The State Tax Commissioner Sales Listing Form (STC 12:39) must be
+  completed and must describe the same estate as the deed (e.g. a remainder
+  subject to a reserved life estate, not "transfer on death").
+
